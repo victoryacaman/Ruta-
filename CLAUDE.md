@@ -29,15 +29,64 @@ without a deliberate conversation:
 
 ## Current state
 
-- A static UI reference (`ruta-dashboard-fixed.html` in this repo, if
-  included) — real HTML/CSS extracted from an earlier AI-builder mockup,
-  extended with: a demo-vs-live data banner, an expandable "why this
-  recommendation," a dismiss/undo flow, an urgency deadline on the decision
-  card, and a WhatsApp click-to-chat button (`wa.me` link, currently a
-  placeholder number).
-- **No backend exists yet.** Every number in that file is hardcoded sample
-  data. Nothing is connected to a real ERP, weather feed, or messaging
-  channel.
+- `ruta-dashboard-fixed.html` — the dashboard UI, extended with: a
+  live-vs-sample-data banner, an expandable "why this recommendation," a
+  dismiss/undo flow, an urgency deadline on the decision card, and a
+  WhatsApp click-to-chat button (`wa.me` link, currently a placeholder
+  number).
+- **Corridor risk signal is live** (build order step 2, done): the top
+  risk-brief card and the SIGNAL WATCH panel's weather/tropical-system rows
+  are computed from real data, not hardcoded. See "Signal ingestion
+  (live)" below for exactly how.
+- **ERP/inventory data is still sample.** The DECISION QUEUE card (PO-184,
+  Tegucigalpa transfer, the L 1.24M exposure figure, the WhatsApp preview
+  text) and the four top metric tiles are still illustrative — no ERP is
+  connected (step 3, blocked on the Pilot target section below). The
+  dashboard labels this explicitly (a "Sample data" tag on the Decision
+  Queue heading, and "ERP: not connected" in the top bar) so the two are
+  never confused.
+
+## Signal ingestion (live)
+
+Build order step 2 is done. Two real, keyless public feeds, both scoped to
+Puerto Cortés (15.8267, -87.9536) — the port the corridor runs through, not
+San Pedro Sula:
+
+- **Open-Meteo** — fetched directly client-side in
+  `ruta-dashboard-fixed.html` (`fetchWeatherOutlook()`). Sets
+  `Access-Control-Allow-Origin: *`, so no relay is needed. 7-day daily
+  precipitation/wind/weather-code outlook; a day is flagged if its WMO
+  weather code indicates heavy rain/thunderstorm (65, 82, 95, 96, 99), or
+  precipitation exceeds 20mm, or max wind exceeds 40km/h.
+- **NOAA/NHC `CurrentStorms.json`** — sets no CORS header at all, so a
+  browser can't fetch it directly (confirmed empirically, not assumed).
+  Relayed through a new Supabase Edge Function, **`storm-signal`**, in a
+  **new, dedicated Supabase project** (name `RUTA`, ref `gcrnarueiybbavmkzhcv`,
+  org `COMERSA`, `us-east-1`) — deliberately separate from the Batcomputer/
+  attendance project (`bzesypxndifsycgxtpad`) so a future paying pilot
+  customer's data never mixes with personal-ops infrastructure. Free tier.
+  The function is read-only and unauthenticated by design (same pattern as
+  Batcomputer's `gmail-summary`/`patrol-summary`/`attendance-feed`): it
+  fetches NHC's public feed server-side, computes haversine distance from
+  each active storm to Puerto Cortés, and returns only
+  `{ok, fetchedAt, totalActiveGlobal, relevantRadiusKm, relevantStorms[],
+  nearestStorm}` — storms are "relevant" within 2,500km. Called from the
+  dashboard as `fetchStormSignal()`.
+- **Combined severity rule** (transparent, auditable — no ML, per the
+  design principles above): LOW/"MONITORING" by default; escalates to
+  MEDIUM/"ELEVATED" if any weather day is flagged or any storm is within
+  2,500km; escalates to HIGH/"HIGH EXPOSURE" if a relevant storm is
+  classified HU (hurricane) or is within 500km. Every escalation names its
+  exact trigger in the risk card's evidence row and copy.
+- Tested against real feed responses (curled directly) and, since this
+  session's sandboxed Chromium couldn't reach the public internet through
+  its network policy in a way suitable for live browser testing, verified
+  in an actual headless-Chromium run of the real dashboard file with the
+  network layer mocked to return those real payloads — covering calm,
+  elevated (weather-only), elevated (distant storm), escalation to high
+  (nearby hurricane), and both-feeds-failing branches. All passed with zero
+  JS errors. Worth a real live-network browser check once this is opened
+  from an actual hosted URL rather than this dev sandbox.
 
 ## Pilot target — FILL THIS IN FIRST
 
@@ -55,13 +104,8 @@ until this is answered:
 1. **~~Pick pilot partner + ERP~~** — business decision, not a coding task.
    Answer the section above before starting step 2.
 
-2. **Real risk signal ingestion.** Start here — free, keyless, immediately
-   provable:
-   - Open-Meteo (7-day operational outlook) — no auth required.
-   - NOAA/NHC active-storm feed — public, has GIS/RSS feeds.
-   - This alone replaces the hardcoded "72% confidence" tropical-system card
-     with something computed from real data. Easiest, highest-confidence win
-     for a first pilot demo.
+2. **~~Real risk signal ingestion.~~ Done.** See "Signal ingestion (live)"
+   above for exactly what was built and how it was tested.
 
 3. **Read-only ERP connection** for the SKU shortlist above (inventory
    levels, reorder points). Odoo or SAP B1 API depending on the answer
