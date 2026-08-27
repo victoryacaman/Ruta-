@@ -398,22 +398,25 @@ previously a generic placeholder.
   when registering the webhook; the credential flows the opposite
   direction from the phone_number_id/WABA ID/access token.
 - **Custom template (`tracking_request`, Spanish, category UTILITY, two
-  body variables — driver name and shipment description)**: attempted via
-  a direct Graph API call (`whatsapp-setup-tracking-template` function)
-  rather than the manual WhatsApp Manager UI — **this failed**, not
-  because of permissions or the Business-verification gate, but because
-  the stored access token had already expired (it's the same 24h temporary
-  token from step 6's setup, and by the time this pass ran it had lapsed).
-  So the template has **not been submitted for approval yet**. Next real
-  step: get a fresh token from the user (same walkthrough as step 6's
-  original setup), update `whatsapp_config`, retry
-  `whatsapp-setup-tracking-template`, and only then can
-  `request-tracking-update` send real content — until then it returns an
-  honest "template not available yet" error rather than faking a send.
-- **Manual steps only the user can do** (needs their Meta login, same as
-  step 6):
-  1. Generate a fresh WhatsApp access token (API Setup screen) and provide
-     it so `whatsapp_config` can be updated — the immediate blocker.
+  body variables — driver name and shipment description)**: submitted via
+  a direct Graph API call (`whatsapp-setup-tracking-template` function,
+  which also supports GET to check status without resubmitting) rather
+  than the manual WhatsApp Manager UI. Two real, empirical findings along
+  the way: (1) first submission attempt failed on the stored access token
+  having expired (same 24h temporary token from step 6's original setup)
+  — fixed by the user generating a fresh one via Meta's API Setup screen,
+  same walkthrough as before; (2) the first template body — ending in the
+  `{{2}}` variable — was rejected (`error_subcode 2388299`: Meta disallows
+  a variable as the first or last thing in a template body), fixed by
+  adding trailing fixed text ("...? Gracias por tu ayuda."). **Submitted
+  successfully — template ID `1000167649703863`, status `PENDING`** as of
+  this pass. `request-tracking-update` will keep returning an honest
+  "template not available yet" error until Meta approves it — checked via
+  a GET to `whatsapp-setup-tracking-template`, no polling loop running
+  automatically.
+- **Manual steps still needed from the user** (needs their Meta login,
+  same as step 6):
+  1. ~~Generate a fresh WhatsApp access token.~~ Done — new token stored.
   2. Register the webhook: Meta app → WhatsApp → Configuration → Webhooks
      — callback URL
      `https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/whatsapp-webhook`,
@@ -430,9 +433,11 @@ previously a generic placeholder.
   test shipment to `tracking_received` with `tracking_number` populated;
   a headless-browser pass over the Shipments view (list rendering, overdue
   flagging, Add-shipment form, Request-tracking button state) with zero JS
-  errors. **Not yet verified**: a real WhatsApp send (blocked on the
-  expired token above) and the real Meta-console webhook registration
-  (needs the user's manual step).
+  errors; the custom template submitted for real via the Graph API
+  (`PENDING`, see above). **Not yet verified**: an actual
+  `request-tracking-update` send (blocked on Meta's template approval,
+  which is out of anyone's direct control) and the real Meta-console
+  webhook registration (needs the user's manual step above).
 
 ## Hosting & access gate
 
