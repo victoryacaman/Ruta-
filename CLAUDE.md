@@ -288,6 +288,43 @@ human's Facebook login — not something done from this repo). The result:
   from the actual WhatsApp Cloud API, and the user confirmed receiving the
   `hello_world` message on the verified test number.
 
+## Hosting & access gate
+
+With no real pilot yet, buying a domain (part of build order step 7) is
+premature — nothing was worth gating or spending money on. Once the user
+decided to prep for demoing this to a prospect, the pragmatic middle
+ground: host it free, add a lightweight gate, skip the domain purchase
+until there's an actual prospect to justify it.
+
+- **Hosting**: GitHub Pages on this repo, same pattern as the Batcomputer
+  attendance panel. The repo is already public (`has_pages` still needs
+  the one-time manual toggle in **Settings → Pages → source: branch
+  `main`, folder `/`** — no API for this, has to be a human clicking it).
+  Once enabled: `https://victoryacaman.github.io/Ruta-/`.
+- **`index.html`** — a new sign-in gate page (the file GitHub Pages serves
+  at the bare root URL). Checks a password against a constant in its own
+  script, and on success sets `sessionStorage.ruta_authed` and redirects
+  to `ruta-dashboard-fixed.html`. Current code: `PuertoCortes2026` —
+  trivially changed by editing the `ACCESS_CODE` constant in `index.html`.
+- **Guard script in `ruta-dashboard-fixed.html`** — checks the same
+  session flag on load and bounces back to `index.html` if it's not set,
+  so the dashboard isn't reachable by just guessing its filename.
+- **Honest about what this is not**: this is a client-side deterrent, not
+  real access control. The password lives in plain JS anyone can read via
+  view-source, and `sessionStorage` is trivially spoofable from devtools.
+  It's a reasonable bar while the dashboard only shows demo ERP data to a
+  handful of people previewing the pilot pitch. It is **not** the "basic
+  auth" build-order step 7 means before real ERP data flows through this
+  — that still needs real backend-enforced auth (e.g. Supabase Auth
+  gating the Edge Functions themselves, or a proper reverse-proxy auth
+  layer) once an actual pilot's data is involved. Step 7 stays open.
+- **Verified locally** (headless-browser test, network mocked): direct
+  navigation to the dashboard without auth bounces to the gate; a wrong
+  code shows an error and stays there; the right code redirects through
+  and the dashboard renders; reloading within the same session stays
+  authenticated. Not yet verified against the live hosted URL, since
+  Pages isn't enabled yet.
+
 ## Pilot target — still needed before a REAL pilot goes live
 
 The connector above works in demo mode without this. It's still needed
