@@ -1,4 +1,4 @@
-# RUTA — Import Resilience Intelligence
+# Utopia — Import Resilience Intelligence
 
 AI-assisted supply-chain risk intelligence for Honduran importers/distributors,
 built as a thin layer on top of a customer's existing ERP — not a replacement
@@ -266,11 +266,11 @@ human's Facebook login — not something done from this repo). The result:
 - **Real constraint, not glossed over**: WhatsApp's Cloud API only allows
   two kinds of outbound messages — a **pre-approved template** (right now,
   only the generic `hello_world` template that Meta provides by default;
-  a *custom* template carrying RUTA's actual alert wording needs formal
+  a *custom* template carrying Utopia's actual alert wording needs formal
   Meta Business verification, which this project has deliberately
   deferred), or **free-form text**, but only within a 24-hour window after
   the recipient has messaged the business number first. So this pipeline
-  is proven end-to-end for `hello_world` — it does **not** yet let RUTA
+  is proven end-to-end for `hello_world` — it does **not** yet let Utopia
   proactively push its real computed recommendation text over WhatsApp.
   The function already accepts a `mode:"text"` path for the session-window
   case, but nothing calls it yet, since using it today would mean sending
