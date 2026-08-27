@@ -1,9 +1,16 @@
-# Utopia — Import Resilience Intelligence
+# Utopia — Supply Resilience Intelligence
 
-AI-assisted supply-chain risk intelligence for Honduran importers/distributors,
-built as a thin layer on top of a customer's existing ERP — not a replacement
-for it. Origin: San Pedro Sula, targeting the Puerto Cortés / CAFTA-DR import
-corridor.
+AI-assisted supply-chain risk intelligence for Honduran importers/
+distributors, built as a thin layer on top of a customer's existing ERP —
+not a replacement for it. Origin: San Pedro Sula. The scoring engine
+(weather/storm severity × days-of-safety-stock × transfer cost) isn't
+port-specific — it applies just as well to a regional/national
+distributor's real exposure (a flooded highway between warehouse and
+stores, severe weather at a domestic supplier's city) as to an importer's
+Puerto Cortés / CAFTA-DR corridor. **As of the geography generalization
+below, the monitored location is a config value (`risk_location_config`),
+not a hardcoded assumption** — Puerto Cortés is the seeded default, one
+valid example configuration, not the whole premise.
 
 **Visual identity**: renamed from RUTA to Utopia (display text only — repo,
 filenames, and all Supabase infra names are unchanged, see the git history
@@ -93,8 +100,9 @@ without a deliberate conversation:
 ## Signal ingestion (live)
 
 Build order step 2 is done. Two real, keyless public feeds, both scoped to
-Puerto Cortés (15.8267, -87.9536) — the port the corridor runs through, not
-San Pedro Sula:
+a **configurable monitored location** (see "Geography: configurable risk
+location" below) — Puerto Cortés (15.8267, -87.9536) is the seeded
+default, not a hardcoded assumption:
 
 - **Open-Meteo** — 7-day daily precipitation/wind/weather-code outlook, no
   auth, sets `Access-Control-Allow-Origin: *`. A day is flagged if its WMO
@@ -110,15 +118,39 @@ San Pedro Sula:
   Read-only, unauthenticated by design (same pattern as Batcomputer's
   `gmail-summary`/`patrol-summary`/`attendance-feed`): fetches NHC's public
   feed server-side, computes haversine distance from each active storm to
-  Puerto Cortés, returns only `{ok, fetchedAt, totalActiveGlobal,
-  relevantRadiusKm, relevantStorms[], nearestStorm}` — storms are
-  "relevant" within 2,500km.
+  the configured location, returns only `{ok, fetchedAt, locationName,
+  totalActiveGlobal, relevantRadiusKm, relevantStorms[], nearestStorm}` —
+  storms are "relevant" within `relevantRadiusKm` (2,500km default).
 - **As of step 4, neither feed is called directly from the browser
   anymore.** Both are fetched server-side by the `risk-recommendation`
   function (see "Scoring engine (step 4)" below), which is now the single
   source of truth for corridor severity — the dashboard makes one call and
   renders the result, rather than computing severity client-side itself.
   This avoids two implementations of the same rule drifting apart.
+
+### Geography: configurable risk location
+
+Originally both functions hardcoded Puerto Cortés' coordinates — fine for
+a single-port pilot, wrong as a product assumption once a medium-sized
+national/regional distributor is the target too. Fixed by a new
+**`risk_location_config`** table (RLS enabled, no policies —
+service_role only, same lockdown pattern as `erp_config`/`whatsapp_config`):
+`location_name`, `lat`, `lon`, `relevant_radius_km` (default 2500).
+`storm-signal` and `risk-recommendation` both read the single row
+server-side instead of a hardcoded constant (falling back to the Puerto
+Cortés default if the table is ever empty/unreachable, so a transient
+config issue never breaks the feed); `risk-recommendation`'s response
+carries `locationName` so the dashboard renders whatever location a given
+deployment is configured for instead of hardcoding "Puerto Cortés."
+Onboarding a new deployment to a different city is now one `UPDATE`, not
+a code change.
+
+**Honest caveat**: `relevant_radius_km` was calibrated for coastal/port
+tropical-storm relevance. An inland business's real exposure leans much
+more on the Open-Meteo weather signal than on distance to a tropical
+system — the storm-distance number is less meaningful the further inland
+the configured location is. Not tuned per-location yet; a real inland
+pilot would be the forcing function to revisit this.
 
 ## ERP connector (live, demo mode)
 
@@ -423,3 +455,23 @@ Treat published industry benchmarks (e.g. 10–20% forecast error reduction,
 5–12% inventory reduction) as the expected steady-state outcome after 6–12
 months of live use, not something to promise inside the pilot window itself
 — they're hard to prove with small SKU counts and short observation periods.
+
+## Future connections — to wire up
+
+Not started. Documented here so they aren't lost, not because either is
+scheduled next.
+
+- **Driver/provider WhatsApp tracking agent.** Idea: a WhatsApp agent that
+  proactively messages the **delivery driver/provider** (confirmed — not
+  the end customer) asking for a tracking number or ETA (e.g. "¿Te
+  gustaría enviar un número de seguimiento con código de rastreo?"),
+  replacing the common Honduran pattern of manually calling a carrier to
+  check status against a delivery deadline. Natural home: the currently-
+  unbuilt "Shipments" nav item. Explicitly **not built**: everything today
+  (`send-whatsapp-alert`) is outbound-only — this needs (1) inbound
+  WhatsApp webhook handling (a new capability, not an extension of the
+  existing send pipeline), and (2) a new shipments/deliveries data model
+  (carrier, deadline, status) that doesn't exist yet. Also gated by the
+  same Meta template-approval/24h-window constraint already deferred in
+  the WhatsApp section above, since a proactive outbound prompt is
+  free-form text outside an existing session window.
