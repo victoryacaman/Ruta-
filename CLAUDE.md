@@ -15,6 +15,32 @@ metric, the alert badge count) — everything else (medium/warning states,
 generic status pills) uses grayscale shades instead of hue, so the one red
 in the UI always means something real.
 
+**Live-proof pass**: after showing this to people who needed convincing the
+tool is real, not a mockup, a few things were tightened so the live parts
+are unmistakably live and the unbuilt parts stop reading as broken:
+- `WHATSAPP_NUMBER` now points at the real verified test recipient
+  (`50499394433`) instead of the placeholder fake number the original
+  reference build shipped with — the click-to-chat button actually opens a
+  real conversation now.
+- **Approve is no longer a fire-and-forget toast.** Clicking it now
+  disables the button, relabels it `✓ Approved · <time>`, and disables
+  the neighboring Compare/Not now buttons — a persistent, visible
+  confirmation that the decision was recorded (matches what `dismissCard()`
+  already did), not just a message that vanishes in 2.4 seconds. Backed
+  by the same real `recordEvent()` → `recommendation-action` write from
+  step 5.
+- The notification bell now calls `showNotificationSummary()`, which
+  builds its message from the same `lastResult` the rest of the page
+  renders from (severity, at-risk count, last-computed time) — real data,
+  not a decorative dead end.
+- The remaining unbuilt pieces (Compare all options, View all 6, Open
+  signal center, and every sidebar nav item other than Command) were
+  reworded from "Not wired in this reference build" — which reads as
+  *broken* — to explicit roadmap framing ("X is on the roadmap next; here's
+  what's live today"). Nothing was actually built out for these; only the
+  honesty of what they say changed. Building any of them out for real is
+  still open, scoped by whatever a real pilot actually needs first.
+
 ## Non-negotiable design principles
 
 These came out of real back-and-forth on the idea and should not be relaxed
