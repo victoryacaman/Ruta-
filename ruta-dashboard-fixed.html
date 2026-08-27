@@ -72,6 +72,22 @@ if(sessionStorage.getItem('ruta_authed') !== '1'){
 .approved-button{background:#1c1c20!important;color:#e8e8ec!important;border:1px solid #333338;box-shadow:none!important;cursor:default}
 button:disabled{opacity:.55;cursor:default}
 
+/* --- Additions: Shipments / driver tracking agent view --- */
+.shipment-card{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:15px 17px;margin-bottom:10px}
+.shipment-card:last-child{margin-bottom:0}
+.shipment-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.shipment-top strong{font-size:13px}
+.shipment-meta{color:#8a8a92;font-size:10px;margin-top:3px}
+.shipment-status{text-transform:uppercase;letter-spacing:.06em;border-radius:9px;padding:4px 8px;font-size:8px;font-weight:800;white-space:nowrap}
+.shipment-status-pending{color:#c9c9d1;background:#1c1c20}
+.shipment-status-tracking_requested{color:#d4d4d9;background:#232320}
+.shipment-status-tracking_received{color:#e8e8ec;background:#232320;border:1px solid #333338}
+.shipment-overdue{color:var(--orange)}
+.shipment-detail{color:#a8a8b0;font-size:11px;margin-top:8px;line-height:1.5}
+.shipment-detail strong{color:var(--ink)}
+.shipment-actions{margin-top:11px;display:flex;justify-content:flex-end;gap:9px}
+.shipment-empty{color:#8a8a92;font-size:12px;text-align:center;padding:20px}
+
 </style>
 </head>
 <body class="antialiased">
@@ -380,6 +396,8 @@ function selectNav(el){
 
   if(view === 'command'){
     main.innerHTML = mainContent;
+  } else if(view === 'shipments'){
+    renderShipmentsView();
   } else {
     var label = el.querySelector('span:nth-child(2)') ? el.querySelector('span:nth-child(2)').textContent : view;
     main.innerHTML =
@@ -392,6 +410,127 @@ function backToCommand(){
   document.querySelector('main.main').innerHTML = mainContent;
   document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
   document.querySelector('.nav-item[data-view="command"]').classList.add('active');
+}
+
+// Driver/provider WhatsApp tracking agent — Shipments view. Real backend:
+// shipments-list/shipments-create/request-tracking-update, plus an inbound
+// whatsapp-webhook function that updates a shipment when the driver
+// replies. No TMS/ERP shipment feed exists yet, so shipments are added
+// manually here (same rationale as the ERP connector's demo mode).
+var SHIPMENTS_LIST_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/shipments-list";
+var SHIPMENTS_CREATE_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/shipments-create";
+var REQUEST_TRACKING_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/request-tracking-update";
+
+function renderShipmentsView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">SHIPMENTS</p><h2>Driver/provider tracking agent</h2>' +
+    '<p>Asks a driver for a tracking number or ETA over WhatsApp instead of calling them — replaces the manual "call to check where the truck is" pattern. Real send + real inbound webhook; shipments are added manually below until a TMS/ERP shipment feed is connected.</p></div></div>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">ADD SHIPMENT</p><h3>New test shipment</h3></div></div>' +
+    '<form id="addShipmentForm" class="form-grid">' +
+    '<label class="wide">Driver name<input type="text" id="shipDriverName" required></label>' +
+    '<label>Driver WhatsApp number<input type="text" id="shipDriverPhone" placeholder="504XXXXXXXX" required></label>' +
+    '<label>Deadline<input type="datetime-local" id="shipDeadline"></label>' +
+    '<label class="wide">Description<input type="text" id="shipDescription" placeholder="PO #4021 — 200 units to San Pedro Sula" required></label>' +
+    '<div class="wide"><button type="submit" class="primary-button">Add shipment</button></div>' +
+    '</form></section>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">ACTIVE SHIPMENTS</p><h3>Awaiting or tracked</h3></div>' +
+    '<button class="text-button" onclick="loadShipments()">Refresh</button></div>' +
+    '<div id="shipmentsList">Loading…</div></section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+
+  document.getElementById('addShipmentForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    addShipment();
+  });
+  loadShipments();
+}
+
+function shipmentStatusLabel(status){
+  return status === 'tracking_received' ? 'Tracking received'
+    : status === 'tracking_requested' ? 'Awaiting reply'
+    : 'Not yet contacted';
+}
+
+async function loadShipments(){
+  var listEl = document.getElementById('shipmentsList');
+  if(!listEl) return;
+  try {
+    var res = await fetch(SHIPMENTS_LIST_URL);
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'shipments-list reported an error');
+    if(!data.shipments.length){
+      listEl.innerHTML = '<div class="shipment-empty">No shipments yet — add one above to try the tracking agent.</div>';
+      return;
+    }
+    var now = Date.now();
+    listEl.innerHTML = data.shipments.map(function(s){
+      var overdue = s.deadline && new Date(s.deadline).getTime() < now && s.status !== 'tracking_received';
+      var deadlineStr = s.deadline ? new Date(s.deadline).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'No deadline set';
+      var detail = '';
+      if(s.tracking_number){ detail += '<div class="shipment-detail"><strong>Tracking number:</strong> ' + s.tracking_number + '</div>'; }
+      if(s.carrier_eta && !s.tracking_number){ detail += '<div class="shipment-detail"><strong>Driver reply:</strong> ' + s.carrier_eta + '</div>'; }
+      var btnDisabled = s.status === 'tracking_requested' || s.status === 'tracking_received';
+      var btnLabel = s.status === 'tracking_received' ? '✓ Tracking received'
+        : s.status === 'tracking_requested' ? 'Awaiting reply…'
+        : 'Request tracking update';
+      return '<div class="shipment-card" data-shipment-id="' + s.id + '">' +
+        '<div class="shipment-top"><div><strong>' + s.driver_name + '</strong>' +
+        '<div class="shipment-meta">' + s.driver_phone + ' · ' + (overdue ? '<span class="shipment-overdue">Overdue — ' + deadlineStr + '</span>' : deadlineStr) + '</div></div>' +
+        '<span class="shipment-status shipment-status-' + s.status + '">' + shipmentStatusLabel(s.status) + '</span></div>' +
+        '<div class="shipment-detail">' + s.description + '</div>' +
+        detail +
+        '<div class="shipment-actions"><button class="secondary-button" ' + (btnDisabled ? 'disabled' : '') +
+        ' onclick="requestTracking(\'' + s.id + '\', this)">' + btnLabel + '</button></div>' +
+        '</div>';
+    }).join('');
+  } catch(e){
+    listEl.innerHTML = '<div class="shipment-empty">Couldn\'t load shipments — ' + e.message + '</div>';
+  }
+}
+
+async function addShipment(){
+  var driverName = document.getElementById('shipDriverName').value.trim();
+  var driverPhone = document.getElementById('shipDriverPhone').value.trim();
+  var deadline = document.getElementById('shipDeadline').value;
+  var description = document.getElementById('shipDescription').value.trim();
+  try {
+    var res = await fetch(SHIPMENTS_CREATE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driverName: driverName, driverPhone: driverPhone, description: description, deadline: deadline ? new Date(deadline).toISOString() : null }),
+    });
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'shipments-create reported an error');
+    document.getElementById('addShipmentForm').reset();
+    showToast('Shipment added.');
+    loadShipments();
+  } catch(e){
+    showToast('Could not add shipment — ' + e.message);
+  }
+}
+
+async function requestTracking(shipmentId, btn){
+  btn.disabled = true;
+  var originalLabel = btn.textContent;
+  btn.textContent = 'Sending…';
+  try {
+    var res = await fetch(REQUEST_TRACKING_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shipmentId: shipmentId }),
+    });
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'request-tracking-update reported an error');
+    showToast('Tracking request sent to the driver over WhatsApp.');
+    loadShipments();
+  } catch(e){
+    showToast('Could not send — ' + e.message);
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
 }
 
 </script>

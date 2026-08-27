@@ -356,6 +356,84 @@ human's Facebook login — not something done from this repo). The result:
   from the actual WhatsApp Cloud API, and the user confirmed receiving the
   `hello_world` message on the verified test number.
 
+## Driver/provider WhatsApp tracking agent (extension beyond the original 7-step build order)
+
+Built out the idea documented in "Future connections" below: a WhatsApp
+agent that proactively asks a **delivery driver/provider** (not the end
+customer) for a tracking number or ETA, replacing the manual "call the
+driver to check" pattern. Lives in the dashboard's Shipments nav item,
+previously a generic placeholder.
+
+- **`shipments` table** (same project, RLS enabled, no policies —
+  service_role only): `driver_name`, `driver_phone`, `description`,
+  `deadline`, `status` (`pending`|`tracking_requested`|
+  `tracking_received`), `tracking_number`, `carrier_eta`,
+  `last_driver_message`, `last_contacted_at`/`last_response_at`. No TMS/ERP
+  shipment feed exists yet (same gap as the ERP connector's pilot target),
+  so shipments are added manually via a real form on the dashboard — not
+  fixed demo data — so the loop can be proven with a real phone number.
+- **Four new Edge Functions**, same `verify_jwt: false` reasoning as every
+  other function here (each does one narrow, non-destructive thing):
+  `shipments-list` (read relay), `shipments-create` (backs the "Add
+  shipment" form), `request-tracking-update` (sends the tracking-request
+  template to a shipment's driver, manually triggered by a dashboard
+  button — **never automatic/scheduled**, consistent with "suggestion,
+  never autonomous action"), and **`whatsapp-webhook`** — the first
+  **inbound** surface in this project (everything before this was
+  outbound-only). GET handles Meta's verification handshake (echoes
+  `hub.challenge` if `hub.verify_token` matches); POST receives driver
+  replies, matches the sender's phone against the most recently-contacted
+  shipment for that number (falling back to that phone's most recent
+  shipment if none is awaiting a reply), and records the reply. Always
+  returns HTTP 200 even on internal errors (logged server-side instead) —
+  required so Meta doesn't disable the webhook after repeated failures.
+- **Tracking-number detection is a simple heuristic, not NLP**: a reply
+  matching `/^[A-Za-z0-9-]{5,20}$/` (no spaces) is treated as a tracking
+  code; anything else (a sentence, "llego en 2 horas") is still recorded
+  as the driver's reply (`carrier_eta`) but not copied into
+  `tracking_number`. A real pilot would want something sturdier than a
+  regex here.
+- **`whatsapp_config` gained `webhook_verify_token`** — a random value
+  generated here (not by Meta) that the user pastes into Meta's console
+  when registering the webhook; the credential flows the opposite
+  direction from the phone_number_id/WABA ID/access token.
+- **Custom template (`tracking_request`, Spanish, category UTILITY, two
+  body variables — driver name and shipment description)**: attempted via
+  a direct Graph API call (`whatsapp-setup-tracking-template` function)
+  rather than the manual WhatsApp Manager UI — **this failed**, not
+  because of permissions or the Business-verification gate, but because
+  the stored access token had already expired (it's the same 24h temporary
+  token from step 6's setup, and by the time this pass ran it had lapsed).
+  So the template has **not been submitted for approval yet**. Next real
+  step: get a fresh token from the user (same walkthrough as step 6's
+  original setup), update `whatsapp_config`, retry
+  `whatsapp-setup-tracking-template`, and only then can
+  `request-tracking-update` send real content — until then it returns an
+  honest "template not available yet" error rather than faking a send.
+- **Manual steps only the user can do** (needs their Meta login, same as
+  step 6):
+  1. Generate a fresh WhatsApp access token (API Setup screen) and provide
+     it so `whatsapp_config` can be updated — the immediate blocker.
+  2. Register the webhook: Meta app → WhatsApp → Configuration → Webhooks
+     — callback URL
+     `https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/whatsapp-webhook`,
+     verify token as stored in `whatsapp_config.webhook_verify_token` —
+     then subscribe to the `messages` field.
+  3. A test-mode WhatsApp number can only message numbers on Meta's
+     allowed test-recipient list (max 5) — same restriction the original
+     `test_recipient_number` setup hit. Any real "driver" phone used to
+     test this needs to be added there first.
+- **Verified so far (all real, no fabricated success)**: `shipments-create`
+  → `shipments-list` round-trip; the webhook's GET verification handshake
+  (correct token echoes `hub.challenge`, wrong token gets 403); a
+  simulated POST delivering a tracking-code-like reply correctly flipped a
+  test shipment to `tracking_received` with `tracking_number` populated;
+  a headless-browser pass over the Shipments view (list rendering, overdue
+  flagging, Add-shipment form, Request-tracking button state) with zero JS
+  errors. **Not yet verified**: a real WhatsApp send (blocked on the
+  expired token above) and the real Meta-console webhook registration
+  (needs the user's manual step).
+
 ## Hosting & access gate
 
 With no real pilot yet, buying a domain (part of build order step 7) is
@@ -441,6 +519,12 @@ before pointing it at an actual company's ERP:
    - Basic auth — even single-tenant — before any real ERP data flows
      through this.
 
+8. **Extension beyond the original 7-step charter: driver/provider
+   WhatsApp tracking agent.** See "Driver/provider WhatsApp tracking
+   agent" above — built pilot-speed, blocked on a fresh access token and
+   the user's manual Meta webhook registration before it's provably
+   end-to-end.
+
 ## Pilot success metrics (already agreed on)
 
 Lead with what's provable in a 4–8 week pilot, not the eventual steady-state
@@ -458,20 +542,12 @@ months of live use, not something to promise inside the pilot window itself
 
 ## Future connections — to wire up
 
-Not started. Documented here so they aren't lost, not because either is
-scheduled next.
-
-- **Driver/provider WhatsApp tracking agent.** Idea: a WhatsApp agent that
-  proactively messages the **delivery driver/provider** (confirmed — not
-  the end customer) asking for a tracking number or ETA (e.g. "¿Te
-  gustaría enviar un número de seguimiento con código de rastreo?"),
-  replacing the common Honduran pattern of manually calling a carrier to
-  check status against a delivery deadline. Natural home: the currently-
-  unbuilt "Shipments" nav item. Explicitly **not built**: everything today
-  (`send-whatsapp-alert`) is outbound-only — this needs (1) inbound
-  WhatsApp webhook handling (a new capability, not an extension of the
-  existing send pipeline), and (2) a new shipments/deliveries data model
-  (carrier, deadline, status) that doesn't exist yet. Also gated by the
-  same Meta template-approval/24h-window constraint already deferred in
-  the WhatsApp section above, since a proactive outbound prompt is
-  free-form text outside an existing session window.
+- **Driver/provider WhatsApp tracking agent — built, pilot-speed.** See
+  "Driver/provider WhatsApp tracking agent" above for the full build.
+  Blocked on two real, expected things before it's provably end-to-end:
+  a fresh (non-expired) WhatsApp access token, and the user completing
+  Meta's manual webhook-registration console step. Natural next steps
+  once live: automatic/scheduled tracking requests (e.g. N days before
+  deadline — deliberately not built now, manual button only, consistent
+  with "suggestion, never autonomous action"), and something sturdier than
+  the current tracking-code regex.
