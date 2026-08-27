@@ -47,6 +47,8 @@ without a deliberate conversation:
   that updates automatically once a real pilot's `provider` is set to
   `odoo`/`sap_b1` in `erp_config`. The *math* combining that inventory with
   the live signal is real, not a demo.
+- **Approve/dismiss/undo are real events now, not just UI state** (step 5,
+  done): every click is persisted. See "Persistence (step 5)" below.
 
 ## Signal ingestion (live)
 
@@ -176,6 +178,63 @@ tiles, and the Decision Queue in one pass.
   noted for steps 2–3 applies here too; worth a real live-network check
   once hosted.
 
+## Persistence (step 5)
+
+Build order step 5 is done: two tables (same Supabase project), RLS
+enabled with **no policies on either** — service_role only, same lockdown
+pattern as `gmail_oauth`/`oracle_config`/`erp_config`, applied here even
+though neither table holds secrets, so there's one consistent access model
+for the whole project rather than a special case for "data that happens to
+be non-sensitive." The dashboard never talks to Postgres directly; it only
+calls Edge Functions.
+
+- **`risk_snapshots`** — one row per `risk-recommendation` computation
+  (`computed_at`, `severity`, `erp_provider`, `total_exposure_lps`,
+  `roi_multiple`, `sku_count`, plus the full response as `full_response`
+  jsonb for a complete audit trail / "why" reconstruction later).
+  `risk-recommendation` writes this itself before responding, and returns
+  the new row's id as `snapshotId`. Persistence is best-effort: a write
+  failure is logged server-side but doesn't block the dashboard from
+  showing today's signal.
+- **`recommendation_events`** — one row per approve/dismiss/undo click,
+  referencing a `risk_snapshots.id`. Written by a new function,
+  **`recommendation-action`** (`POST {snapshotId, eventType, note?}`,
+  `eventType` one of `approved`/`dismissed`/`undone`). Unauthenticated by
+  design for now (no login system exists yet — step 7's "basic auth" is
+  still pending a real pilot) and deliberately narrow: it can only append
+  an event row referencing a snapshot that already exists — it cannot
+  read, modify, or fire any purchase/transfer/supplier action itself,
+  enforcing "suggestion, never autonomous action" at the infrastructure
+  level, not just in the UI copy.
+- **Dashboard wiring**: dismiss ("✕ Not now"), undo, and the decision
+  card's primary button (renamed **"Approve recommendation"**, since it
+  now actually logs an approval rather than being a no-op "Review" label)
+  all call `recordEvent()`, which fires-and-forgets a call to
+  `recommendation-action` using the current page load's `snapshotId`
+  before updating the UI. A logging failure doesn't block the human's
+  dismiss/undo from working — recorded via `console.error`, not surfaced
+  as a blocking error.
+- **Deliberately out of scope for this pass**: dismissing a recommendation
+  doesn't make it "smart-sticky" across reloads (e.g. suppressing it until
+  the storm track changes, as the mockup's original placeholder copy
+  claimed) — each page load computes a fresh snapshot, so a dismiss only
+  covers that one snapshot's card for that session. Making dismissal
+  persist across reloads based on whether the underlying signal actually
+  changed is a reasonable future refinement, not something the build
+  order's step 5 text requires ("store... every approve/dismiss/timestamp
+  event" — which this does).
+- **Verified**: called `risk-recommendation` for a real `snapshotId`,
+  posted a real `dismissed` event against it via `recommendation-action`,
+  confirmed an invalid `eventType` is rejected cleanly, and read both rows
+  back directly from Postgres to confirm they match. Separately verified
+  in a real headless-browser click-through (approve → dismiss → undo) that
+  all three actions fire the correct request body and the UI transitions
+  correctly, with zero JS errors.
+- This is also what makes "suggestion approval/dismissal rate" (one of
+  the pilot success metrics below) an actual query away, once there's
+  enough real usage to query — `recommendation_events` joined to
+  `risk_snapshots` — rather than a metric with nothing behind it.
+
 ## Pilot target — still needed before a REAL pilot goes live
 
 The connector above works in demo mode without this. It's still needed
@@ -207,10 +266,9 @@ before pointing it at an actual company's ERP:
    data, not sample data, though the underlying SKUs are still the demo
    adapter's mock inventory until a real pilot connects.
 
-5. **Persistence layer.** Store risk scores, recommendations, and — most
-   importantly — every approve/dismiss/timestamp event. Supabase is a
-   reasonable default (Postgres, instant REST API, fast to stand up for a
-   single-customer pilot); use it unless there's a reason not to.
+5. **~~Persistence layer.~~ Done.** See "Persistence (step 5)" above —
+   `risk_snapshots` + `recommendation_events`, written by
+   `risk-recommendation` and a new `recommendation-action` function.
 
 6. **WhatsApp, real path, two speeds:**
    - Fast/pilot: Meta's Cloud API gives a free test WhatsApp number and a
