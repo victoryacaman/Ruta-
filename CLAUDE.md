@@ -5,6 +5,16 @@ built as a thin layer on top of a customer's existing ERP — not a replacement
 for it. Origin: San Pedro Sula, targeting the Puerto Cortés / CAFTA-DR import
 corridor.
 
+**Visual identity**: renamed from RUTA to Utopia (display text only — repo,
+filenames, and all Supabase infra names are unchanged, see the git history
+for exact scope). Theme is a monochrome dark UI (near-black surfaces, off-
+white text, `--teal` repurposed as a near-white primary accent) with exactly
+one reserved color, `--orange` (`#ff4444`), kept strictly for genuine
+danger/urgency signals (the high-severity risk card, the inventory-at-risk
+metric, the alert badge count) — everything else (medium/warning states,
+generic status pills) uses grayscale shades instead of hue, so the one red
+in the UI always means something real.
+
 ## Non-negotiable design principles
 
 These came out of real back-and-forth on the idea and should not be relaxed
