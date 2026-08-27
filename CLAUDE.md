@@ -414,30 +414,41 @@ previously a generic placeholder.
   "template not available yet" error until Meta approves it — checked via
   a GET to `whatsapp-setup-tracking-template`, no polling loop running
   automatically.
-- **Manual steps still needed from the user** (needs their Meta login,
-  same as step 6):
-  1. ~~Generate a fresh WhatsApp access token.~~ Done — new token stored.
-  2. Register the webhook: Meta app → WhatsApp → Configuration → Webhooks
-     — callback URL
-     `https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/whatsapp-webhook`,
-     verify token as stored in `whatsapp_config.webhook_verify_token` —
-     then subscribe to the `messages` field.
-  3. A test-mode WhatsApp number can only message numbers on Meta's
-     allowed test-recipient list (max 5) — same restriction the original
-     `test_recipient_number` setup hit. Any real "driver" phone used to
-     test this needs to be added there first.
-- **Verified so far (all real, no fabricated success)**: `shipments-create`
-  → `shipments-list` round-trip; the webhook's GET verification handshake
-  (correct token echoes `hub.challenge`, wrong token gets 403); a
-  simulated POST delivering a tracking-code-like reply correctly flipped a
-  test shipment to `tracking_received` with `tracking_number` populated;
-  a headless-browser pass over the Shipments view (list rendering, overdue
-  flagging, Add-shipment form, Request-tracking button state) with zero JS
-  errors; the custom template submitted for real via the Graph API
-  (`PENDING`, see above). **Not yet verified**: an actual
-  `request-tracking-update` send (blocked on Meta's template approval,
-  which is out of anyone's direct control) and the real Meta-console
-  webhook registration (needs the user's manual step above).
+- **Real bug found and fixed: webhook URL verification ≠ WABA
+  subscription.** After the user registered the callback URL/token in
+  Meta's console (confirmed via logs: Meta's own verification GET hit our
+  function and succeeded), inbound messages still weren't arriving. Root
+  cause, found via `GET /{waba_id}/subscribed_apps`: the WhatsApp Business
+  Account was subscribed to *Meta's own internal test app* ("WA DevX
+  Webhook Events 1P App"), not to Ruta's app — verifying a callback URL at
+  the app level and subscribing a specific WABA to send that app events
+  are two separate things, and the console's guided setup didn't do the
+  second one automatically. Fixed with a new **`whatsapp-webhook-subscription`**
+  function (GET checks current subscribed apps, POST calls
+  `POST /{waba_id}/subscribed_apps` to add ours — idempotent, safe to
+  re-run). One POST call fixed it for real.
+- **Verified end-to-end, for real** (not simulated): after the fix above,
+  the user sent an actual WhatsApp message from their own phone to the
+  test number; it arrived at `whatsapp-webhook`, matched the test
+  shipment by phone number, and correctly recorded it — `status` flipped
+  to `tracking_received`, `tracking_number` populated with the driver's
+  actual message text (matched the tracking-code heuristic), confirmed by
+  querying `shipments-list` directly. This is the first fully real,
+  human-triggered proof of the inbound path working.
+- **Manual steps still needed from the user**:
+  1. ~~Generate a fresh WhatsApp access token.~~ Done.
+  2. ~~Register the webhook callback URL + verify token.~~ Done, and
+     confirmed via logs that Meta's own verification call succeeded.
+  3. ~~Subscribe the app to the WABA's events.~~ Done (see above) — no
+     further console action needed for the inbound path.
+  4. A test-mode WhatsApp number can only *send* messages to numbers on
+     Meta's allowed test-recipient list (max 5) — this only affects
+     outbound sends (`request-tracking-update`), not inbound replies,
+     which work from any number as just proven.
+- **Only remaining gap**: `request-tracking-update` still can't send real
+  content until Meta approves the `tracking_request` template (`PENDING`
+  as of this pass) — entirely out of anyone's control, checked
+  periodically via `whatsapp-setup-tracking-template`'s GET mode.
 
 ## Hosting & access gate
 
