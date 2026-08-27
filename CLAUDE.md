@@ -34,18 +34,19 @@ without a deliberate conversation:
   dismiss/undo flow, an urgency deadline on the decision card, and a
   WhatsApp click-to-chat button (`wa.me` link, currently a placeholder
   number).
-- **Corridor risk signal is live** (build order step 2, done): the top
-  risk-brief card and the SIGNAL WATCH panel's weather/tropical-system rows
-  are computed from real data, not hardcoded. See "Signal ingestion
-  (live)" below for exactly how.
-- **ERP connector backend exists (step 3, done) but the dashboard still
-  shows sample data.** The DECISION QUEUE card (PO-184, Tegucigalpa
-  transfer, the L 1.24M exposure figure, the WhatsApp preview text) and the
-  four top metric tiles are still illustrative — the connector isn't wired
-  into the UI yet (that's step 4, which combines it with the live signal
-  above). The dashboard labels this explicitly (a "Sample data" tag on the
-  Decision Queue heading, and "ERP: not connected" in the top bar) so the
-  two are never confused. See "ERP connector (live, demo mode)" below.
+- **The whole Command dashboard is now computed, end to end** (steps 2–4
+  done): the risk-brief card, SIGNAL WATCH panel, all four metric tiles,
+  and the DECISION QUEUE card (headline, urgency note, recommendation,
+  ROI, "why" list, and WhatsApp preview text) are all driven by one live
+  scoring-engine call — nothing on the Command view is hardcoded anymore.
+  See "Signal ingestion (live)" and "Scoring engine (step 4)" below.
+- **What's still sample, and clearly labeled as such:** the underlying
+  *inventory numbers* (three mock SKUs) come from the ERP connector's demo
+  adapter, not a real customer's ERP — the top bar says "ERP: not
+  connected" and the Decision Queue heading carries a "Demo ERP data" tag
+  that updates automatically once a real pilot's `provider` is set to
+  `odoo`/`sap_b1` in `erp_config`. The *math* combining that inventory with
+  the live signal is real, not a demo.
 
 ## Signal ingestion (live)
 
@@ -53,41 +54,29 @@ Build order step 2 is done. Two real, keyless public feeds, both scoped to
 Puerto Cortés (15.8267, -87.9536) — the port the corridor runs through, not
 San Pedro Sula:
 
-- **Open-Meteo** — fetched directly client-side in
-  `ruta-dashboard-fixed.html` (`fetchWeatherOutlook()`). Sets
-  `Access-Control-Allow-Origin: *`, so no relay is needed. 7-day daily
-  precipitation/wind/weather-code outlook; a day is flagged if its WMO
+- **Open-Meteo** — 7-day daily precipitation/wind/weather-code outlook, no
+  auth, sets `Access-Control-Allow-Origin: *`. A day is flagged if its WMO
   weather code indicates heavy rain/thunderstorm (65, 82, 95, 96, 99), or
   precipitation exceeds 20mm, or max wind exceeds 40km/h.
 - **NOAA/NHC `CurrentStorms.json`** — sets no CORS header at all, so a
   browser can't fetch it directly (confirmed empirically, not assumed).
-  Relayed through a new Supabase Edge Function, **`storm-signal`**, in a
+  Relayed through a Supabase Edge Function, **`storm-signal`**, in a
   **new, dedicated Supabase project** (name `RUTA`, ref `gcrnarueiybbavmkzhcv`,
   org `COMERSA`, `us-east-1`) — deliberately separate from the Batcomputer/
   attendance project (`bzesypxndifsycgxtpad`) so a future paying pilot
   customer's data never mixes with personal-ops infrastructure. Free tier.
-  The function is read-only and unauthenticated by design (same pattern as
-  Batcomputer's `gmail-summary`/`patrol-summary`/`attendance-feed`): it
-  fetches NHC's public feed server-side, computes haversine distance from
-  each active storm to Puerto Cortés, and returns only
-  `{ok, fetchedAt, totalActiveGlobal, relevantRadiusKm, relevantStorms[],
-  nearestStorm}` — storms are "relevant" within 2,500km. Called from the
-  dashboard as `fetchStormSignal()`.
-- **Combined severity rule** (transparent, auditable — no ML, per the
-  design principles above): LOW/"MONITORING" by default; escalates to
-  MEDIUM/"ELEVATED" if any weather day is flagged or any storm is within
-  2,500km; escalates to HIGH/"HIGH EXPOSURE" if a relevant storm is
-  classified HU (hurricane) or is within 500km. Every escalation names its
-  exact trigger in the risk card's evidence row and copy.
-- Tested against real feed responses (curled directly) and, since this
-  session's sandboxed Chromium couldn't reach the public internet through
-  its network policy in a way suitable for live browser testing, verified
-  in an actual headless-Chromium run of the real dashboard file with the
-  network layer mocked to return those real payloads — covering calm,
-  elevated (weather-only), elevated (distant storm), escalation to high
-  (nearby hurricane), and both-feeds-failing branches. All passed with zero
-  JS errors. Worth a real live-network browser check once this is opened
-  from an actual hosted URL rather than this dev sandbox.
+  Read-only, unauthenticated by design (same pattern as Batcomputer's
+  `gmail-summary`/`patrol-summary`/`attendance-feed`): fetches NHC's public
+  feed server-side, computes haversine distance from each active storm to
+  Puerto Cortés, returns only `{ok, fetchedAt, totalActiveGlobal,
+  relevantRadiusKm, relevantStorms[], nearestStorm}` — storms are
+  "relevant" within 2,500km.
+- **As of step 4, neither feed is called directly from the browser
+  anymore.** Both are fetched server-side by the `risk-recommendation`
+  function (see "Scoring engine (step 4)" below), which is now the single
+  source of truth for corridor severity — the dashboard makes one call and
+  renders the result, rather than computing severity client-side itself.
+  This avoids two implementations of the same rule drifting apart.
 
 ## ERP connector (live, demo mode)
 
@@ -132,6 +121,61 @@ later is a config change, not new code.
     a refinement once a real pilot's warehouse/sales-history layout is
     known, not built blind.
 
+## Scoring engine (step 4)
+
+Build order step 4 is done: a single Edge Function, **`risk-recommendation`**
+(same Supabase project), combines steps 2 and 3 into the actual numbers the
+Command dashboard shows — no ML, every figure traceable to a named input,
+per the design principles above. Called once by the dashboard on load;
+its response drives the risk-brief card, Signal Watch, all four metric
+tiles, and the Decision Queue in one pass.
+
+- **Expected delay by severity** (a disclosed modeling assumption, not
+  hidden): low → 0 days, medium → 5 days, high → 10 days. Tune once a real
+  pilot's actual carrier lead times are known.
+- **Per SKU** (skipped if no sales-velocity data exists): `daysOfSafetyStock
+  = onHandUnits / avgDailyUnitsSold`. If that's less than the expected
+  delay, the gap in days × daily sales = `unitsShort`, and
+  `unitsShort × unitPrice` = that SKU's sales exposure. If an alternate
+  warehouse has stock, the recommended transfer is
+  `min(unitsShort, availableUnits)`, costed at a flat **L45/unit** regional
+  trucking assumption (also disclosed, not hidden — replace with a real
+  quote before a real pilot).
+- **Aggregate**: total exposure, total transfer cost, total transfer units,
+  and an **ROI multiple** (`exposure ÷ transfer cost`) — this replaces the
+  old mockup's fabricated "84% confidence" badge. A confidence percentage
+  with no real basis is exactly the kind of black-box number the design
+  principles warn against; a computed cost-benefit ratio is auditable, so
+  it's what's shown instead.
+- **No recommendation is manufactured when none is warranted** (the
+  "conservative alert volume" principle enforced at the data layer, not
+  just the UI): if severity is low, or every SKU has enough stock to cover
+  the expected delay, `recommendation.applicable` is `false` and the
+  Decision Queue shows a calm empty state instead of an invented alert.
+- **Honesty fix worth noting**: the first version of this function let a
+  fully-failed weather *and* storm fetch silently default to
+  severity `"low"` — i.e., "we don't know" rendered identically to "we
+  checked and it's calm." Caught in testing, not shipped. Both feeds
+  failing now produces a distinct `"unknown"` severity ("SIGNAL
+  UNAVAILABLE", grey, `?` icon) that pauses recommendations rather than
+  guessing — the same fix was applied to the dashboard's own
+  fetch-failure fallback. This is the same "say so plainly rather than
+  guessing" rule as everywhere else in this file, just easy to miss when
+  two upstream failures combine.
+- **Tested**: the real end-to-end demo path was verified against live
+  Open-Meteo/NHC/erp-inventory data (result at time of writing: medium
+  severity from real forecasted weather, one SKU — the 12V car battery —
+  5 units short, L7,250 exposure, L225 transfer cost, 32.2x ROI — numbers
+  will legitimately change run to run as real weather/storms change).
+  Every rendering branch (calm, elevated/weather-only, elevated/distant
+  storm, high/hurricane multi-SKU, an at-risk SKU with no transfer source,
+  the endpoint being unreachable, and both upstream feeds failing) was
+  verified in an actual headless-Chromium run of the real dashboard file
+  with network responses mocked to exact real/representative payloads —
+  same sandboxed-Chromium/proxy limitation on live browser network testing
+  noted for steps 2–3 applies here too; worth a real live-network check
+  once hosted.
+
 ## Pilot target — still needed before a REAL pilot goes live
 
 The connector above works in demo mode without this. It's still needed
@@ -146,9 +190,9 @@ before pointing it at an actual company's ERP:
 ## Build order
 
 1. **Pick pilot partner + ERP** — business decision, not a coding task,
-   and not a blocker for steps 2–3 below (both were built generic/demo so
-   a real pilot is a config change later, not new code). Still needed
-   before any real pilot goes live — see the section below.
+   and not a blocker for steps 2–4 below (all built generic/demo so a real
+   pilot is a config change later, not new code). Still needed before any
+   real pilot goes live — see the section below.
 
 2. **~~Real risk signal ingestion.~~ Done.** See "Signal ingestion (live)"
    above for exactly what was built and how it was tested.
@@ -158,10 +202,10 @@ before pointing it at an actual company's ERP:
    exist but are unverified against a live instance; the demo adapter is
    fully real and is what the connector actually returns today.
 
-4. **Rule-based scoring engine**, not ML (see principles above). Combine the
-   signal from step 2 with the inventory data from step 3 into a real
-   "inventory at risk" number and a ranked recommendation, replacing the
-   sample data in the UI.
+4. **~~Rule-based scoring engine.~~ Done.** See "Scoring engine (step 4)"
+   above — the Decision Queue's numbers are now real math over steps 2–3's
+   data, not sample data, though the underlying SKUs are still the demo
+   adapter's mock inventory until a real pilot connects.
 
 5. **Persistence layer.** Store risk scores, recommendations, and — most
    importantly — every approve/dismiss/timestamp event. Supabase is a
