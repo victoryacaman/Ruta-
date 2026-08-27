@@ -49,6 +49,10 @@ without a deliberate conversation:
   the live signal is real, not a demo.
 - **Approve/dismiss/undo are real events now, not just UI state** (step 5,
   done): every click is persisted. See "Persistence (step 5)" below.
+- **A real WhatsApp send pipeline exists** (step 6, pilot path, done): a
+  free Meta test number can actually deliver messages to a verified
+  recipient today. See "WhatsApp (step 6, pilot path)" below for exactly
+  what that does and doesn't cover yet.
 
 ## Signal ingestion (live)
 
@@ -235,6 +239,55 @@ calls Edge Functions.
   enough real usage to query — `recommendation_events` joined to
   `risk_snapshots` — rather than a metric with nothing behind it.
 
+## WhatsApp (step 6, pilot path)
+
+Build order step 6 is done for the pilot/fast path: a real Meta for
+Developers app ("Ruta") exists, with WhatsApp added as a use case and a
+free test number set up through Meta's own console (that part needs a
+human's Facebook login — not something done from this repo). The result:
+
+- **`whatsapp_config` table** (same Supabase project) — RLS enabled, no
+  policies (service_role only, same lockdown pattern as
+  `gmail_oauth`/`oracle_config`/`erp_config`). Holds the test number's
+  `phone_number_id` (`1224515280752830`), `whatsapp_business_account_id`
+  (`1598150905037308`), the live access token, and the verified test
+  recipient (`50499394433`). The token is a **temporary, 24h credential**
+  from Meta's console — `token_issued_at`/`token_expires_at` are tracked
+  so it's visible when it's likely gone stale; getting a longer-lived
+  token (via a Meta Business System User) is a natural next step once
+  this needs to run unattended rather than be triggered manually.
+- **`send-whatsapp-alert` Edge Function** — read-only-in-scope,
+  unauthenticated by design (same reasoning as `recommendation-action`:
+  it can only send using the config already on file, nothing else, and
+  sending a message isn't a purchase/transfer/supplier action under the
+  non-negotiable principles). Calls the real WhatsApp Cloud API
+  (`graph.facebook.com/v25.0/{phone_number_id}/messages`) with the stored
+  token.
+- **Real constraint, not glossed over**: WhatsApp's Cloud API only allows
+  two kinds of outbound messages — a **pre-approved template** (right now,
+  only the generic `hello_world` template that Meta provides by default;
+  a *custom* template carrying RUTA's actual alert wording needs formal
+  Meta Business verification, which this project has deliberately
+  deferred), or **free-form text**, but only within a 24-hour window after
+  the recipient has messaged the business number first. So this pipeline
+  is proven end-to-end for `hello_world` — it does **not** yet let RUTA
+  proactively push its real computed recommendation text over WhatsApp.
+  The function already accepts a `mode:"text"` path for the session-window
+  case, but nothing calls it yet, since using it today would mean sending
+  arbitrary custom text through a channel Meta hasn't approved for that —
+  exactly the "later/production" distinction this build order's step 6
+  text already drew.
+- **Not wired to the dashboard's UI** — the existing WhatsApp preview
+  card's `wa.me` click-to-chat link still works as before (user-initiated,
+  no template restriction) and is untouched. `send-whatsapp-alert` is a
+  separate, proactive-push capability; deliberately not hooked up to a
+  dashboard button or a schedule yet, since firing it automatically needs
+  either the custom-template approval above or an explicit trigger policy
+  neither of which exists yet.
+- **Verified for real**: called the function live, got `{ok:true}` back
+  from the actual WhatsApp Cloud API, and the user confirmed receiving the
+  `hello_world` message on the verified test number.
+
 ## Pilot target — still needed before a REAL pilot goes live
 
 The connector above works in demo mode without this. It's still needed
@@ -270,11 +323,9 @@ before pointing it at an actual company's ERP:
    `risk_snapshots` + `recommendation_events`, written by
    `risk-recommendation` and a new `recommendation-action` function.
 
-6. **WhatsApp, real path, two speeds:**
-   - Fast/pilot: Meta's Cloud API gives a free test WhatsApp number and a
-     pre-approved `hello_world` template instantly, no business verification
-     needed. Enough to actually message a known test recipient (e.g. the
-     pilot's procurement lead) during the pilot.
+6. **~~WhatsApp.~~ Fast/pilot speed done.** See "WhatsApp (step 6, pilot
+   path)" above — real send pipeline, verified live, limited to the
+   `hello_world` template or a 24h session-window reply until:
    - Later/production: full Meta Business verification (2–10 business days,
      needs tax ID/incorporation docs) + a custom approved message template,
      once messaging real customers beyond a known test list.
