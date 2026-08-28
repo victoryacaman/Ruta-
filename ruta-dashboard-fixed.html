@@ -88,6 +88,19 @@ button:disabled{opacity:.55;cursor:default}
 .shipment-actions{margin-top:11px;display:flex;justify-content:flex-end;gap:9px}
 .shipment-empty{color:#8a8a92;font-size:12px;text-align:center;padding:20px}
 
+/* --- Additions: Decisions history view --- */
+.decision-row{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:13px 16px;margin-bottom:8px;display:grid;grid-template-columns:150px 90px minmax(0,1fr) 140px;align-items:center;gap:14px}
+.decision-row:last-child{margin-bottom:0}
+.decision-row-time{color:#8a8a92;font-size:10.5px}
+.decision-row-severity{text-transform:uppercase;font-size:9px;font-weight:800;letter-spacing:.05em}
+.decision-row-detail{color:#a8a8b0;font-size:11px}
+.decision-row-detail strong{color:var(--ink)}
+.decision-status{text-transform:uppercase;letter-spacing:.05em;border-radius:9px;padding:4px 8px;font-size:8px;font-weight:800;text-align:center;white-space:nowrap}
+.decision-status-approved{color:#e8e8ec;background:#232320;border:1px solid #333338}
+.decision-status-dismissed{color:#8a8a92;background:#1c1c20}
+.decision-status-no_action{color:#c9c9d1;background:#1c1c20}
+.decision-status-not_applicable{color:#6a6a72;background:#141417}
+
 </style>
 </head>
 <body class="antialiased">
@@ -398,6 +411,8 @@ function selectNav(el){
     main.innerHTML = mainContent;
   } else if(view === 'shipments'){
     renderShipmentsView();
+  } else if(view === 'decisions'){
+    renderDecisionsView();
   } else {
     var label = el.querySelector('span:nth-child(2)') ? el.querySelector('span:nth-child(2)').textContent : view;
     main.innerHTML =
@@ -509,6 +524,74 @@ async function addShipment(){
     loadShipments();
   } catch(e){
     showToast('Could not add shipment — ' + e.message);
+  }
+}
+
+// Decisions history view — surfaces risk_snapshots + recommendation_events
+// (persisted since build order step 5) as a real history instead of data
+// that only ever lived in Postgres. No Meta/WhatsApp dependency.
+var DECISIONS_LIST_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/decisions-list";
+
+function renderDecisionsView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">DECISIONS</p><h2>Signal &amp; recommendation history</h2>' +
+    '<p>Every corridor signal Utopia has computed, and what happened to the recommendation it produced — real data persisted since build order step 5, not a sample.</p></div></div>' +
+    '<section class="metrics" aria-label="Decision history summary">' +
+    '<article class="metric metric-neutral"><div class="metric-label">SNAPSHOTS COMPUTED</div><div class="metric-value" id="decSummarySnapshots">…</div><div class="metric-note">Every dashboard load</div></article>' +
+    '<article class="metric metric-warning"><div class="metric-label">RECOMMENDATIONS SHOWN</div><div class="metric-value" id="decSummaryShown">…</div><div class="metric-note" id="decSummaryShownNote">Loading…</div></article>' +
+    '<article class="metric metric-success"><div class="metric-label">APPROVAL RATE</div><div class="metric-value" id="decSummaryRate">…</div><div class="metric-note">Of decisions actually made</div></article>' +
+    '<article class="metric metric-danger"><div class="metric-label">NO ACTION TAKEN</div><div class="metric-value" id="decSummaryNoAction">…</div><div class="metric-note">Recommendation shown, no click</div></article>' +
+    '</section>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">HISTORY</p><h3>Most recent first</h3></div>' +
+    '<button class="text-button" onclick="loadDecisions()">Refresh</button></div>' +
+    '<div id="decisionsHistory">Loading…</div></section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+  loadDecisions();
+}
+
+function decisionStatusLabel(status){
+  return status === 'approved' ? '✓ Approved'
+    : status === 'dismissed' ? '✕ Dismissed'
+    : status === 'no_action' ? 'No action'
+    : 'Not applicable';
+}
+
+async function loadDecisions(){
+  var listEl = document.getElementById('decisionsHistory');
+  if(!listEl) return;
+  try {
+    var res = await fetch(DECISIONS_LIST_URL);
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'decisions-list reported an error');
+
+    var s = data.summary;
+    document.getElementById('decSummarySnapshots').textContent = s.totalSnapshots;
+    document.getElementById('decSummaryShown').textContent = s.recommendationsShown;
+    document.getElementById('decSummaryShownNote').textContent = s.approved + ' approved · ' + s.dismissed + ' dismissed';
+    document.getElementById('decSummaryRate').textContent = s.approvalRatePct === null ? '—' : s.approvalRatePct + '%';
+    document.getElementById('decSummaryNoAction').textContent = s.noAction;
+
+    if(!data.history.length){
+      listEl.innerHTML = '<div class="shipment-empty">No signal history yet — load the Command view a few times to build one up.</div>';
+      return;
+    }
+    listEl.innerHTML = data.history.map(function(h){
+      var timeStr = new Date(h.computedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      var detail = h.recommendationApplicable
+        ? h.skuCount + ' SKU(s) at risk · ' + formatLps(h.totalExposureLps) + ' exposure · ' + (h.roiMultiple ? h.roiMultiple + 'x ROI' : 'no transfer source')
+        : 'No recommendation — signal was calm';
+      return '<div class="decision-row">' +
+        '<div class="decision-row-time">' + timeStr + '</div>' +
+        '<div class="decision-row-severity severity-' + h.severity + '">' + h.severity + '</div>' +
+        '<div class="decision-row-detail">' + detail + '</div>' +
+        '<span class="decision-status decision-status-' + h.status + '">' + decisionStatusLabel(h.status) + '</span>' +
+        '</div>';
+    }).join('');
+  } catch(e){
+    listEl.innerHTML = '<div class="shipment-empty">Couldn\'t load decision history — ' + e.message + '</div>';
   }
 }
 

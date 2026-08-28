@@ -306,6 +306,23 @@ calls Edge Functions.
   the pilot success metrics below) an actual query away, once there's
   enough real usage to query — `recommendation_events` joined to
   `risk_snapshots` — rather than a metric with nothing behind it.
+- **That query is no longer hypothetical.** A **Decisions** nav view
+  (previously a generic placeholder, same as Shipments was) now renders
+  exactly that join as a real history — every computed signal, its
+  severity, and what happened to the recommendation it produced
+  (approved/dismissed/no action/not applicable), plus a summary strip
+  with the actual approval rate. New **`decisions-list`** Edge Function
+  (read-only, unauthenticated, same relay pattern as `shipments-list`):
+  fetches up to the last 50 `risk_snapshots`, left-joins the *latest*
+  `recommendation_events` row per snapshot (so an approve-then-undo
+  correctly reverts to "no action," matching what the live dashboard
+  itself shows), and computes the summary server-side. Deliberately built
+  with no Meta/WhatsApp dependency — pure use of data this project
+  already had sitting unused in Postgres. Verified against real data via
+  curl (11 real snapshots, 2 approved/1 dismissed/8 no-action, 66.7%
+  approval rate — all genuine usage from this session's own testing, not
+  fabricated) and a headless-browser pass with mocked data confirming the
+  rendering logic, zero JS errors.
 
 ## WhatsApp (step 6, pilot path)
 
