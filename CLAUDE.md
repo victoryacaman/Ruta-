@@ -323,6 +323,24 @@ calls Edge Functions.
   approval rate — all genuine usage from this session's own testing, not
   fabricated) and a headless-browser pass with mocked data confirming the
   rendering logic, zero JS errors.
+- **Honesty pass, prompted by an external pilot-readiness review**: the
+  review correctly flagged that this history — 11 snapshots, 66.7%
+  approval — reads as real customer engagement but is actually this
+  session's own development testing (a snapshot is recorded on every
+  dashboard load, with no distinction between a real decision and a
+  reload while debugging). Fixed by adding an explicit caveat directly in
+  the Decisions view's intro copy rather than changing what gets
+  persisted — the recording behavior itself is correct per step 5's
+  design, the problem was purely that nothing disclosed the data's
+  actual source. The same review also caught two real copy overclaims,
+  both fixed: the WhatsApp preview card claimed **"Also delivered to Ana
+  on WhatsApp · 6:02 AM"** — a fabricated specific delivery event that
+  never happens (the preview is user-initiated via the wa.me link, not
+  auto-delivered) — reworded to "WhatsApp preview · sent when you click
+  below"; and the roadmap-placeholder copy for unbuilt nav items claimed
+  "real WhatsApp send" unqualified, which overstates what's actually live
+  given the tracking-request template is still pending Meta's approval —
+  reworded to name that limitation explicitly.
 
 ## WhatsApp (step 6, pilot path)
 
