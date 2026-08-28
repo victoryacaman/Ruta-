@@ -319,11 +319,16 @@ human's Facebook login — not something done from this repo). The result:
   `gmail_oauth`/`oracle_config`/`erp_config`). Holds the test number's
   `phone_number_id` (`1224515280752830`), `whatsapp_business_account_id`
   (`1598150905037308`), the live access token, and the verified test
-  recipient (`50499394433`). The token is a **temporary, 24h credential**
-  from Meta's console — `token_issued_at`/`token_expires_at` are tracked
-  so it's visible when it's likely gone stale; getting a longer-lived
-  token (via a Meta Business System User) is a natural next step once
-  this needs to run unattended rather than be triggered manually.
+  recipient (`50499394433`). The token is a temporary credential from
+  Meta's console — **empirically closer to ~1 hour than the 24h
+  originally assumed here** (confirmed twice: a token issued ~17:52 UTC
+  expired by ~19:00 UTC; a second issued ~22:21 UTC expired by ~00:00
+  UTC). `token_issued_at`/`token_expires_at` are tracked but currently
+  computed as issued+24h, which is now known to be wrong/over-optimistic.
+  Given how often this has already broken automated checks in practice, a
+  longer-lived token (via a Meta Business System User) has moved from
+  "natural next step" to the actual recommended fix, not just a
+  nice-to-have.
 - **`send-whatsapp-alert` Edge Function** — read-only-in-scope,
   unauthenticated by design (same reasoning as `recommendation-action`:
   it can only send using the config already on file, nothing else, and
