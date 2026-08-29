@@ -449,11 +449,8 @@ previously a generic placeholder.
   `{{2}}` variable — was rejected (`error_subcode 2388299`: Meta disallows
   a variable as the first or last thing in a template body), fixed by
   adding trailing fixed text ("...? Gracias por tu ayuda."). **Submitted
-  successfully — template ID `1000167649703863`, status `PENDING`** as of
-  this pass. `request-tracking-update` will keep returning an honest
-  "template not available yet" error until Meta approves it — checked via
-  a GET to `whatsapp-setup-tracking-template`, no polling loop running
-  automatically.
+  successfully — template ID `1000167649703863` — and Meta approved it
+  after roughly a day in review, status `APPROVED`.**
 - **Real bug found and fixed: webhook URL verification ≠ WABA
   subscription.** After the user registered the callback URL/token in
   Meta's console (confirmed via logs: Meta's own verification GET hit our
@@ -485,10 +482,17 @@ previously a generic placeholder.
      Meta's allowed test-recipient list (max 5) — this only affects
      outbound sends (`request-tracking-update`), not inbound replies,
      which work from any number as just proven.
-- **Only remaining gap**: `request-tracking-update` still can't send real
-  content until Meta approves the `tracking_request` template (`PENDING`
-  as of this pass) — entirely out of anyone's control, checked
-  periodically via `whatsapp-setup-tracking-template`'s GET mode.
+- **Fully proven end-to-end, both directions — real, not simulated.**
+  With the template approved, `request-tracking-update` was called
+  against a real test shipment (driver "Victor," the verified test
+  number); WhatsApp accepted the send (`message_status: "accepted"`, real
+  message ID), and the user confirmed the actual message arrived on their
+  phone: *"Hola Victor, ¿podrías compartir tu número de rastreo o la hora
+  estimada de entrega para: PO #4021 — 200 unidades a San Pedro Sula?
+  Gracias por tu ayuda."* Combined with the inbound proof above, the
+  driver/provider WhatsApp tracking agent is no longer pilot-speed-with-
+  caveats — both the ask and the reply have been proven working for real,
+  human-confirmed, on both ends of the conversation.
 
 ## Hosting & access gate
 
@@ -576,10 +580,11 @@ before pointing it at an actual company's ERP:
      through this.
 
 8. **Extension beyond the original 7-step charter: driver/provider
-   WhatsApp tracking agent.** See "Driver/provider WhatsApp tracking
-   agent" above — built pilot-speed, blocked on a fresh access token and
-   the user's manual Meta webhook registration before it's provably
-   end-to-end.
+   WhatsApp tracking agent. Done — fully proven end-to-end.** See
+   "Driver/provider WhatsApp tracking agent" above: real outbound send
+   (approved custom template, human-confirmed delivery) and real inbound
+   webhook (human-sent reply correctly matched and recorded), both
+   verified live, not simulated.
 
 ## Pilot success metrics (already agreed on)
 
@@ -598,12 +603,12 @@ months of live use, not something to promise inside the pilot window itself
 
 ## Future connections — to wire up
 
-- **Driver/provider WhatsApp tracking agent — built, pilot-speed.** See
-  "Driver/provider WhatsApp tracking agent" above for the full build.
-  Blocked on two real, expected things before it's provably end-to-end:
-  a fresh (non-expired) WhatsApp access token, and the user completing
-  Meta's manual webhook-registration console step. Natural next steps
-  once live: automatic/scheduled tracking requests (e.g. N days before
-  deadline — deliberately not built now, manual button only, consistent
-  with "suggestion, never autonomous action"), and something sturdier than
-  the current tracking-code regex.
+- **Driver/provider WhatsApp tracking agent — built and fully proven,
+  both directions.** See "Driver/provider WhatsApp tracking agent" above.
+  Natural next steps from here: automatic/scheduled tracking requests
+  (e.g. N days before deadline — deliberately not built now, manual
+  button only, consistent with "suggestion, never autonomous action"),
+  something sturdier than the current tracking-code regex, and a
+  longer-lived WhatsApp access token (a Meta Business System User) so
+  this stops needing a fresh temporary token roughly every hour — a real
+  recurring cost during this build that a real pilot shouldn't inherit.
