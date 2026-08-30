@@ -12,6 +12,42 @@ below, the monitored location is a config value (`risk_location_config`),
 not a hardcoded assumption** — Puerto Cortés is the seeded default, one
 valid example configuration, not the whole premise.
 
+**Prospect-presentation pass**: an external checklist for showing this to
+an actual pilot prospect flagged several real, verified issues, being
+fixed one at a time (this pass covers the first batch):
+- Internal build jargon visible in the live UI ("build order step 3,"
+  "pending a named pilot," "roadmap," Meta's template-approval status) —
+  removed from every user-visible string (mode banner, ERP sync button,
+  the three stub-view toasts, the roadmap-placeholder copy). Reworded
+  toward what a prospect actually needs to know (e.g. the ERP button now
+  says connecting Excel/Odoo/SAP B1 is "a configuration step, not new
+  engineering" — turning an honesty note into a selling point) rather
+  than just deleting the internal detail.
+- **Severity-wording inconsistency, real bug**: sentences like the
+  Decision Queue headline printed the raw internal value ("...during the
+  medium corridor signal") right next to a badge reading "ELEVATED" —
+  same severity, two different words. Fixed with a single
+  `severityLabel()` helper used everywhere severity appears in a
+  sentence, so the wording always matches the badge.
+- **"SKU(s)" grammar** — fixed with a `skuWord(n)` helper (singular vs.
+  plural) used in every count-dependent sentence, instead of the
+  awkward literal "(s)".
+- **Fabricated count on "View all 6"** — there's no real list of 6 cases
+  behind it (this build only ever surfaces one live recommendation at a
+  time); reworded to "View all cases" rather than inventing a number.
+  Same fix applied to a "4" notification badge on the Risks nav item that
+  had nothing real behind it either — removed.
+- **Hard-coded date** ("WEDNESDAY, AUGUST 26" never changed) — now set
+  from `new Date()` on load.
+- **Mobile layout bug, real and reproduced**: the live-data mode banner
+  collapsed into a squeezed, unreadable narrow column on phone-width
+  viewports (confirmed via a Playwright mobile-viewport screenshot before
+  and after — banner height dropped from 469px to 180px). Root cause: the
+  banner's flex children had no `min-width:0`/`flex-wrap`, so the browser
+  compressed the tag and the long copy text into narrow columns instead
+  of wrapping normally. Fixed with a mobile media query that stacks the
+  banner vertically instead of fighting the flex layout.
+
 **Visual identity**: renamed from RUTA to Utopia (display text only — repo,
 filenames, and all Supabase infra names are unchanged, see the git history
 for exact scope). Theme is a monochrome dark UI (near-black surfaces, off-
