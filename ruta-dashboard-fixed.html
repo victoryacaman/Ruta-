@@ -152,6 +152,15 @@ button:disabled{opacity:.55;cursor:default}
 .tool-card-real p{color:#a8a8b0;font-size:11.5px;line-height:1.6;margin:0 0 8px}
 .tool-card-real .sample-tag{margin-left:0}
 
+.weather-day-row{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:12px 16px;margin-bottom:7px;display:grid;grid-template-columns:100px minmax(0,1fr) 90px 90px 80px;align-items:center;gap:12px;font-size:11.5px}
+.weather-day-row:last-child{margin-bottom:0}
+.weather-day-row.flagged{border-color:#3a2226}
+.weather-day-flag{color:var(--orange);font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+.storm-row{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:14px 16px;margin-bottom:8px}
+.storm-row:last-child{margin-bottom:0}
+.storm-row strong{font-size:13px}
+.storm-row p{color:#a8a8b0;font-size:11px;margin:5px 0 0}
+
 </style>
 </head>
 <body class="antialiased">
@@ -477,6 +486,8 @@ function selectNav(el){
     main.innerHTML = mainContent;
   } else if(view === 'shipments'){
     renderShipmentsView();
+  } else if(view === 'risks'){
+    renderRisksView();
   } else if(view === 'inventory'){
     renderInventoryView();
   } else if(view === 'integrations'){
@@ -668,6 +679,63 @@ async function loadInventory(){
   } catch(e){
     listEl.innerHTML = '<div class="shipment-empty">Couldn\'t load inventory — ' + e.message + '</div>';
   }
+}
+
+// Risks — the full day-by-day weather breakdown and full storm detail
+// that risk-recommendation already computes but Command only summarizes
+// as a count/reason line. No new math, no new backend beyond exposing
+// data that already existed inside the function.
+var WMO_LABELS = {
+  0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+  45: 'Fog', 48: 'Depositing rime fog',
+  51: 'Light drizzle', 53: 'Moderate drizzle', 55: 'Dense drizzle',
+  61: 'Slight rain', 63: 'Moderate rain', 65: 'Heavy rain',
+  80: 'Slight rain showers', 81: 'Moderate rain showers', 82: 'Violent rain showers',
+  95: 'Thunderstorm', 96: 'Thunderstorm with slight hail', 99: 'Thunderstorm with heavy hail',
+};
+
+function renderRisksView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">RISKS</p><h2>Full signal detail</h2>' +
+    '<p>Command shows a one-line summary of this; here\'s the actual day-by-day forecast and storm detail the severity is computed from.</p></div></div>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">7-DAY WEATHER OUTLOOK</p><h3 id="risksLocationHeading">Loading…</h3></div></div>' +
+    '<div id="weatherDaysList">Loading…</div></section>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">TROPICAL SYSTEMS</p><h3>Active storms in range</h3></div></div>' +
+    '<div id="stormsList">Loading…</div></section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+
+  fetch(RISK_RECOMMENDATION_URL).then(function(res){ return res.json(); }).then(function(data){
+    if(!data.ok) throw new Error(data.error || 'risk-recommendation reported an error');
+    var c = data.corridor;
+    document.getElementById('risksLocationHeading').textContent = (data.locationName || 'Your region') + ' — ' + severityLabel(c.severity);
+
+    var days = c.weatherDays || [];
+    document.getElementById('weatherDaysList').innerHTML = days.length ? days.map(function(d){
+      var label = WMO_LABELS[d.code] || ('Code ' + d.code);
+      var dateStr = new Date(d.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      return '<div class="weather-day-row' + (d.flagged ? ' flagged' : '') + '">' +
+        '<div>' + dateStr + '</div>' +
+        '<div>' + label + '</div>' +
+        '<div>' + d.precip + ' mm</div>' +
+        '<div>' + d.wind + ' km/h</div>' +
+        '<div>' + (d.flagged ? '<span class="weather-day-flag">Flagged</span>' : '—') + '</div>' +
+        '</div>';
+    }).join('') : '<div class="shipment-empty">' + (c.weatherError ? 'Weather feed unavailable — ' + c.weatherError : 'No forecast data.') + '</div>';
+
+    var storms = c.relevantStorms || [];
+    document.getElementById('stormsList').innerHTML = storms.length ? storms.map(function(s){
+      return '<div class="storm-row"><strong>' + s.name + ' <span class="sample-tag">' + (s.classification || '—') + '</span></strong>' +
+        '<p>' + Math.round(s.distanceKm).toLocaleString() + ' km away' +
+        (s.movementDir ? ' · moving ' + s.movementDir + (s.movementSpeedKt ? ' at ' + s.movementSpeedKt + ' kt' : '') : '') +
+        (s.intensityKt ? ' · ' + s.intensityKt + ' kt intensity' : '') + '</p></div>';
+    }).join('') : '<div class="shipment-empty">' + (c.stormError ? 'Storm feed unavailable — ' + c.stormError : 'No active tropical systems within ' + c.relevantRadiusKm.toLocaleString() + 'km right now.') + '</div>';
+  }).catch(function(e){
+    document.getElementById('weatherDaysList').innerHTML = '<div class="shipment-empty">Couldn\'t load — ' + e.message + '</div>';
+    document.getElementById('stormsList').innerHTML = '';
+  });
 }
 
 // Integrations — real status of every live data source this build

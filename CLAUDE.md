@@ -567,6 +567,27 @@ previously a generic placeholder.
   caveats — both the ask and the reply have been proven working for real,
   human-confirmed, on both ends of the conversation.
 
+## Risks view — the last placeholder, now built
+
+`risk-recommendation` was already computing the full day-by-day 7-day
+weather breakdown internally, but only ever returned the count
+(`flaggedWeatherDays`) — the actual per-day detail (date, WMO code,
+precipitation, wind, flagged or not) was computed and discarded. Fixed
+by having `fetchWeatherOutlook` also return `allDays`, now exposed as
+`corridor.weatherDays` in the response — purely additive, no change to
+existing fields or the severity computation itself. `relevantStorms` was
+already full detail (name, classification, distance, movement,
+intensity), nothing needed there.
+
+The dashboard's Risks nav item — the last of the eight nav items still
+showing the generic placeholder — now renders both: a 7-day weather table
+(date, conditions decoded from the WMO code, precip, wind, flagged
+badge) and a full storm list. No new math, no new backend beyond
+exposing data the function already had. Verified via curl (the live
+response now includes real per-day detail alongside the unchanged
+severity/reasons) and a headless-browser pass with mocked multi-day/storm
+data, zero JS errors.
+
 ## Integrations, Settings, Add tools — the last placeholder nav items, now built
 
 Continuing the prospect-presentation pass: the three remaining
