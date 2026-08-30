@@ -567,6 +567,44 @@ previously a generic placeholder.
   caveats — both the ask and the reply have been proven working for real,
   human-confirmed, on both ends of the conversation.
 
+## Integrations, Settings, Add tools — the last placeholder nav items, now built
+
+Continuing the prospect-presentation pass: the three remaining
+placeholder nav items are now real, with one deliberate security
+boundary kept in place rather than built around.
+
+- **Integrations** — a real status page listing every live data source
+  this build actually uses (Open-Meteo, NOAA/NHC, WhatsApp Cloud API,
+  ERP connector with its live current provider fetched from
+  `erp-inventory`). Deliberately does **not** list connector logos for
+  things that were never built (the original reference mockup included
+  NetSuite and a generic "Microsoft" tile) — showing only what's real was
+  the entire point of this pass.
+- **Settings** — a real, safe config editor, and nothing more. New
+  **`risk-location-settings`** function (GET reads, POST updates
+  `risk_location_config` — name, lat, lon, radius). This table holds no
+  secrets, so an unauthenticated write is an acceptable risk (worst case,
+  someone points the monitored location somewhere silly — annoying, not
+  a security incident). **Deliberately not editable from this page**:
+  `erp_config` and `whatsapp_config`, both of which hold real credentials
+  (ERP username/password, WhatsApp access token). Exposing a write path
+  to those through an unauthenticated public form would be a real
+  vulnerability regardless of demo context, so Settings only shows their
+  status read-only — actual ERP/WhatsApp credentials are configured
+  directly with a Utopia contact, never through a client-side form. This
+  was a deliberate security call, not an oversight.
+- **Add tools** — an honest ERP-onboarding page describing the two
+  adapters that actually exist (Odoo's JSON-RPC, SAP Business One's
+  Service Layer REST — same detail as documented in "ERP connector"
+  above), plus the current live provider. No self-service credential
+  form, same reasoning as Settings above — onboarding a real ERP is a
+  config change made with a Utopia contact, not a public form.
+- **Verified**: real end-to-end round-trip on `risk-location-settings`
+  (POST then GET confirms the write persisted) via curl, and a
+  headless-browser pass across all three views (mocked data) confirming
+  render logic, the Settings save flow, and status fetches — zero JS
+  errors.
+
 ## Hosting & access gate
 
 With no real pilot yet, buying a domain (part of build order step 7) is

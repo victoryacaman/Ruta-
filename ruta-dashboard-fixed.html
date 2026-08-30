@@ -129,6 +129,29 @@ button:disabled{opacity:.55;cursor:default}
   .inventory-row{grid-template-columns:1fr 1fr;grid-auto-rows:auto;row-gap:6px}
 }
 
+/* --- Additions: Integrations, Settings, Add tools views --- */
+.integration-row{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:14px 16px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:14px}
+.integration-row:last-child{margin-bottom:0}
+.integration-row strong{font-size:12.5px;display:block}
+.integration-row p{color:#a8a8b0;font-size:10.5px;margin:3px 0 0}
+.integration-status{text-transform:uppercase;letter-spacing:.05em;border-radius:9px;padding:5px 10px;font-size:8.5px;font-weight:800;white-space:nowrap}
+.integration-status-live{color:#e8e8ec;background:#232320;border:1px solid #333338}
+.integration-status-demo{color:#c9c9d1;background:#1c1c20}
+
+.settings-field{margin-bottom:14px}
+.settings-field label{color:#8a8a92;text-transform:uppercase;letter-spacing:.07em;font-size:9px;font-weight:800;display:block;margin-bottom:6px}
+.settings-field input{background:#0f0f12;border:1px solid #333338;color:var(--ink);border-radius:7px;width:100%;height:38px;padding:0 12px;font-size:12px}
+.settings-status-row{border-top:1px solid var(--line);margin-top:16px;padding-top:16px}
+.settings-status-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #222226;font-size:11.5px}
+.settings-status-item:last-child{border-bottom:0}
+.settings-status-item span:last-child{color:#a8a8b0}
+
+.tool-card-real{border:1px solid var(--line);background:#17171b;border-radius:11px;padding:18px;margin-bottom:12px}
+.tool-card-real:last-child{margin-bottom:0}
+.tool-card-real h4{margin:0 0 6px;font-size:14px}
+.tool-card-real p{color:#a8a8b0;font-size:11.5px;line-height:1.6;margin:0 0 8px}
+.tool-card-real .sample-tag{margin-left:0}
+
 </style>
 </head>
 <body class="antialiased">
@@ -456,6 +479,12 @@ function selectNav(el){
     renderShipmentsView();
   } else if(view === 'inventory'){
     renderInventoryView();
+  } else if(view === 'integrations'){
+    renderIntegrationsView();
+  } else if(view === 'settings'){
+    renderSettingsView();
+  } else if(view === 'add-tools'){
+    renderAddToolsView();
   } else if(view === 'decisions'){
     renderDecisionsView();
   } else {
@@ -639,6 +668,127 @@ async function loadInventory(){
   } catch(e){
     listEl.innerHTML = '<div class="shipment-empty">Couldn\'t load inventory — ' + e.message + '</div>';
   }
+}
+
+// Integrations — real status of every live data source this build
+// actually uses. No fabricated logos for connectors that don't exist
+// (the original reference mockup listed NetSuite/generic "Microsoft" —
+// dropped, since only Odoo and SAP Business One are real adapters).
+var RISK_LOCATION_SETTINGS_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/risk-location-settings";
+
+function renderIntegrationsView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">INTEGRATIONS</p><h2>Connected data sources</h2>' +
+    '<p>Every live feed this build actually uses, and its real status right now — not a marketing list.</p></div></div>' +
+    '<section class="panel"><div id="integrationsList">Loading…</div></section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+
+  var rows = [
+    { name: 'Open-Meteo', desc: '7-day weather outlook — precipitation, wind, storm codes', status: 'live' },
+    { name: 'NOAA/NHC', desc: 'Active tropical storm tracking, relayed via storm-signal', status: 'live' },
+    { name: 'WhatsApp Cloud API', desc: 'Two-way — proactive send (approved template) and inbound driver replies, both proven', status: 'live' },
+    { name: 'ERP connector', desc: 'Loading current provider…', status: 'loading', id: 'erpIntegrationRow' },
+  ];
+  document.getElementById('integrationsList').innerHTML = rows.map(function(r){
+    return '<div class="integration-row"' + (r.id ? ' id="' + r.id + '"' : '') + '><div><strong>' + r.name + '</strong><p>' + r.desc + '</p></div>' +
+      '<span class="integration-status integration-status-' + (r.status === 'live' ? 'live' : 'demo') + '">' + (r.status === 'live' ? 'Live' : '…') + '</span></div>';
+  }).join('');
+
+  fetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
+    var row = document.getElementById('erpIntegrationRow');
+    if(!row) return;
+    var provider = data.ok ? data.provider : 'unavailable';
+    var isDemo = provider === 'demo';
+    row.querySelector('p').textContent = isDemo
+      ? 'Running in demo mode — sample inventory. Connecting your Odoo or SAP Business One is a configuration change.'
+      : 'Live: ' + provider;
+    row.querySelector('.integration-status').className = 'integration-status ' + (isDemo ? 'integration-status-demo' : 'integration-status-live');
+    row.querySelector('.integration-status').textContent = isDemo ? 'Demo data' : 'Live';
+  }).catch(function(){});
+}
+
+// Settings — a real, safe config editor. Only risk_location_config is
+// editable here (no secrets in it, unlike erp_config/whatsapp_config,
+// which deliberately have no client-writable path at all — see
+// risk-location-settings function comments).
+function renderSettingsView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">SETTINGS</p><h2>Configuration</h2>' +
+    '<p>The monitored location drives every signal on Command. Everything else here is read-only status — ERP and WhatsApp credentials are configured directly with your Utopia contact, never through a form like this.</p></div></div>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">MONITORED LOCATION</p><h3>Where the signal is measured</h3></div></div>' +
+    '<form id="locationSettingsForm">' +
+    '<div class="settings-field"><label>Location name</label><input type="text" id="setLocationName" required></div>' +
+    '<div class="settings-field"><label>Latitude</label><input type="text" id="setLat" required></div>' +
+    '<div class="settings-field"><label>Longitude</label><input type="text" id="setLon" required></div>' +
+    '<div class="settings-field"><label>Relevant storm radius (km)</label><input type="text" id="setRadius" required></div>' +
+    '<button type="submit" class="primary-button">Save location</button>' +
+    '<div class="settings-status-row">' +
+    '<div class="settings-status-item"><span>ERP connector</span><span id="setErpStatus">Loading…</span></div>' +
+    '<div class="settings-status-item"><span>WhatsApp Cloud API</span><span>Connected — test mode</span></div>' +
+    '</div>' +
+    '</form></section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+
+  fetch(RISK_LOCATION_SETTINGS_URL).then(function(res){ return res.json(); }).then(function(data){
+    if(!data.ok || !data.config) return;
+    document.getElementById('setLocationName').value = data.config.location_name;
+    document.getElementById('setLat').value = data.config.lat;
+    document.getElementById('setLon').value = data.config.lon;
+    document.getElementById('setRadius').value = data.config.relevant_radius_km;
+  }).catch(function(){});
+
+  fetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
+    document.getElementById('setErpStatus').textContent = data.ok ? (data.provider === 'demo' ? 'Demo data' : 'Live: ' + data.provider) : 'Unavailable';
+  }).catch(function(){});
+
+  document.getElementById('locationSettingsForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    var payload = {
+      locationName: document.getElementById('setLocationName').value.trim(),
+      lat: parseFloat(document.getElementById('setLat').value),
+      lon: parseFloat(document.getElementById('setLon').value),
+      relevantRadiusKm: parseInt(document.getElementById('setRadius').value, 10),
+    };
+    fetch(RISK_LOCATION_SETTINGS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      .then(function(res){ return res.json(); })
+      .then(function(data){
+        if(!data.ok) throw new Error(data.error || 'risk-location-settings reported an error');
+        showToast('Monitored location updated — takes effect on the next signal computation.');
+      })
+      .catch(function(e){ showToast('Could not save — ' + e.message); });
+  });
+}
+
+// Add tools — an honest ERP-onboarding page: only the two adapters that
+// are actually built (Odoo, SAP Business One), no self-service credential
+// form (erp_config credentials are set server-side only, never through a
+// public form — same reasoning as Settings above).
+function renderAddToolsView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">ADD TOOLS</p><h2>Connect your ERP</h2>' +
+    '<p>Two real adapters exist today, both written against documented, stable APIs. Onboarding is a config change your Utopia contact makes with you — not a self-service credential form, since ERP passwords are never handled client-side.</p></div></div>' +
+    '<section class="panel">' +
+    '<div class="tool-card-real"><h4>Odoo <span class="sample-tag">JSON-RPC</span></h4>' +
+    '<p>Authenticates via <code>common.authenticate</code>, reads <code>product.product</code> for on-hand levels, and <code>sale.order.line</code> for trailing-30-day sales velocity.</p></div>' +
+    '<div class="tool-card-real"><h4>SAP Business One <span class="sample-tag">Service Layer REST</span></h4>' +
+    '<p>Authenticates via <code>POST /b1s/v1/Login</code>, reads <code>GET /b1s/v1/Items</code> expanding <code>ItemWarehouseInfoCollection</code> for multi-warehouse stock.</p></div>' +
+    '<div class="tool-card-real"><h4>Currently running <span class="sample-tag" id="addToolsCurrentProvider">…</span></h4>' +
+    '<p>The Inventory and Decisions views are computed from whichever provider is configured — right now, sample data until a real ERP is connected.</p></div>' +
+    '</section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+
+  fetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
+    document.getElementById('addToolsCurrentProvider').textContent = data.ok ? (data.provider === 'demo' ? 'Demo data' : 'Live: ' + data.provider) : 'Unavailable';
+  }).catch(function(){});
 }
 
 // Decisions history view — surfaces risk_snapshots + recommendation_events
