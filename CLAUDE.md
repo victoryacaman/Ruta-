@@ -47,6 +47,30 @@ fixed one at a time (this pass covers the first batch):
   compressed the tag and the long copy text into narrow columns instead
   of wrapping normally. Fixed with a mobile media query that stacks the
   banner vertically instead of fighting the flex layout.
+- **Real bug: the sign-in redirect used a relative path** (`index.html`),
+  which resolves to whatever file happens to share the same folder —
+  confirmed as the cause of a reported case where an emailed copy of the
+  dashboard file, opened next to an unrelated project's `index.html`,
+  silently redirected there instead of Utopia's own sign-in page. Fixed
+  by hardcoding the absolute hosted URL
+  (`https://victoryacaman.github.io/Ruta-/index.html`) as the redirect
+  target, so an unauthenticated visitor always lands on the correct page
+  regardless of how the file was opened. The real underlying practice
+  fix, though: **present only the hosted link, never the raw HTML file**
+  — emailing/downloading the file is what exposes this failure mode (and
+  hands over internal endpoint/test details) in the first place.
+- **Cleared all development test data** before any prospect sees this:
+  both test shipments ("Victor," "Webhook verification" — artifacts from
+  proving the WhatsApp send/webhook paths work) and all 19
+  `risk_snapshots` / 7 `recommendation_events` rows from today's testing.
+  Decided against pre-seeding replacement "clean" sample data — the
+  stronger plan (per the user's own call) is proving this live, in
+  person: create a shipment with a realistic name/PO on the spot, click
+  Request tracking update, show the real WhatsApp message arrive, reply,
+  watch the dashboard update — and let a couple of live page reloads
+  during the visit naturally seed a few genuinely fresh Decisions
+  entries. Watching it happen beats a static history a prospect has to
+  take on faith.
 
 **Visual identity**: renamed from RUTA to Utopia (display text only — repo,
 filenames, and all Supabase infra names are unchanged, see the git history

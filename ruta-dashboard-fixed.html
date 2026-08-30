@@ -7,10 +7,13 @@
 <script>
 // Lightweight deterrent, not real security -- see CLAUDE.md "Hosting &
 // access gate". Bounces back to the sign-in gate if this browser session
-// hasn't passed it (works locally too: index.html sets the flag before
-// redirecting here, so opening this file directly still requires the code).
+// hasn't passed it. Absolute URL, not relative -- a relative 'index.html'
+// resolves to whatever file happens to share this file's folder (a real
+// bug found before presenting: emailing/downloading this file into a
+// folder next to an unrelated project's index.html silently redirected
+// there instead). Always land on the real hosted sign-in page.
 if(sessionStorage.getItem('ruta_authed') !== '1'){
-  window.location.replace('index.html');
+  window.location.replace('https://victoryacaman.github.io/Ruta-/index.html');
 }
 </script>
 <style>
