@@ -116,6 +116,19 @@ button:disabled{opacity:.55;cursor:default}
   .signal-updated-note{white-space:normal}
 }
 
+/* --- Additions: Inventory view (real ERP connector data) --- */
+.inventory-row{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:13px 16px;margin-bottom:8px;display:grid;grid-template-columns:minmax(0,1.3fr) 110px 110px 100px minmax(0,1fr);align-items:center;gap:14px}
+.inventory-row:last-child{margin-bottom:0}
+.inventory-row strong{font-size:12px;display:block}
+.inventory-row-sku{color:#8a8a92;font-size:9.5px;margin-top:2px}
+.inventory-stat{font-size:11px;color:#a8a8b0}
+.inventory-stat strong{display:inline;font-size:11px;color:var(--ink)}
+.inventory-below-reorder{color:var(--orange);font-weight:800}
+.inventory-alt{color:#8a8a92;font-size:10px}
+@media (max-width:980px){
+  .inventory-row{grid-template-columns:1fr 1fr;grid-auto-rows:auto;row-gap:6px}
+}
+
 </style>
 </head>
 <body class="antialiased">
@@ -441,6 +454,8 @@ function selectNav(el){
     main.innerHTML = mainContent;
   } else if(view === 'shipments'){
     renderShipmentsView();
+  } else if(view === 'inventory'){
+    renderInventoryView();
   } else if(view === 'decisions'){
     renderDecisionsView();
   } else {
@@ -554,6 +569,75 @@ async function addShipment(){
     loadShipments();
   } catch(e){
     showToast('Could not add shipment — ' + e.message);
+  }
+}
+
+// Inventory view — real ERP connector data (build order step 3). Same
+// days-of-safety-stock math as the scoring engine (risk-recommendation),
+// computed client-side here purely for display since this view doesn't
+// need the corridor signal, just the raw inventory picture.
+var ERP_INVENTORY_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/erp-inventory";
+
+function renderInventoryView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">INVENTORY</p><h2>ERP connector <span class="sample-tag" id="invProviderTag">…</span></h2>' +
+    '<p>Live inventory levels feeding the risk scoring engine. Excel/Odoo/SAP Business One connect here the same way — this is the actual data shape the corridor signal is measured against, not a mockup.</p></div></div>' +
+    '<section class="metrics" aria-label="Inventory summary">' +
+    '<article class="metric metric-neutral"><div class="metric-label">SKUS TRACKED</div><div class="metric-value" id="invSummaryCount">…</div><div class="metric-note">This connector</div></article>' +
+    '<article class="metric metric-warning"><div class="metric-label">BELOW REORDER POINT</div><div class="metric-value" id="invSummaryBelowReorder">…</div><div class="metric-note">Needs attention</div></article>' +
+    '<article class="metric metric-success"><div class="metric-label">INVENTORY VALUE</div><div class="metric-value" id="invSummaryValue">…</div><div class="metric-note">On-hand × unit price</div></article>' +
+    '<article class="metric metric-danger"><div class="metric-label">FETCHED</div><div class="metric-value" id="invSummaryFetched" style="font-size:14px">…</div><div class="metric-note">Live on every load</div></article>' +
+    '</section>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">SKU DETAIL</p><h3>On-hand vs. safety stock</h3></div>' +
+    '<button class="text-button" onclick="loadInventory()">Refresh</button></div>' +
+    '<div id="inventoryList">Loading…</div></section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+  loadInventory();
+}
+
+async function loadInventory(){
+  var listEl = document.getElementById('inventoryList');
+  if(!listEl) return;
+  try {
+    var res = await fetch(ERP_INVENTORY_URL);
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'erp-inventory reported an error');
+
+    document.getElementById('invProviderTag').textContent = data.provider === 'demo' ? 'Demo ERP data' : 'Live: ' + data.provider;
+
+    var items = data.items || [];
+    var belowReorder = items.filter(function(i){ return i.onHandUnits < i.reorderPoint; }).length;
+    var totalValue = items.reduce(function(s, i){ return s + i.onHandUnits * i.unitPrice; }, 0);
+
+    document.getElementById('invSummaryCount').textContent = items.length;
+    document.getElementById('invSummaryBelowReorder').textContent = belowReorder;
+    document.getElementById('invSummaryValue').textContent = formatLps(totalValue);
+    document.getElementById('invSummaryFetched').textContent = new Date(data.fetchedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+    if(!items.length){
+      listEl.innerHTML = '<div class="shipment-empty">No inventory items returned by this connector.</div>';
+      return;
+    }
+    listEl.innerHTML = items.map(function(i){
+      var daysStock = i.avgDailyUnitsSold ? Math.round((i.onHandUnits / i.avgDailyUnitsSold) * 10) / 10 : null;
+      var belowReorder = i.onHandUnits < i.reorderPoint;
+      var altTotal = (i.alternateWarehouseUnits || []).reduce(function(s, w){ return s + w.units; }, 0);
+      var altText = altTotal
+        ? altTotal + ' units at ' + i.alternateWarehouseUnits.map(function(w){ return w.location; }).join(', ')
+        : 'No alternate warehouse stock';
+      return '<div class="inventory-row">' +
+        '<div><strong>' + i.name + '</strong><div class="inventory-row-sku">' + i.sku + '</div></div>' +
+        '<div class="inventory-stat">' + (belowReorder ? '<span class="inventory-below-reorder">' + i.onHandUnits + '</span>' : i.onHandUnits) + ' <small>/ ' + i.reorderPoint + ' reorder pt</small></div>' +
+        '<div class="inventory-stat">' + (daysStock !== null ? daysStock + ' days' : '—') + '<br><small>safety stock</small></div>' +
+        '<div class="inventory-stat">' + formatLps(i.unitPrice) + '</div>' +
+        '<div class="inventory-alt">' + altText + '</div>' +
+        '</div>';
+    }).join('');
+  } catch(e){
+    listEl.innerHTML = '<div class="shipment-empty">Couldn\'t load inventory — ' + e.message + '</div>';
   }
 }
 

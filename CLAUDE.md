@@ -254,6 +254,19 @@ later is a config change, not new code.
     units yet; SAP B1's sales velocity isn't implemented yet) — noted as
     a refinement once a real pilot's warehouse/sales-history layout is
     known, not built blind.
+- **Dashboard Inventory view**: the previously-placeholder Inventory nav
+  item now renders this connector's actual data — the same shape the
+  scoring engine is measured against, not a mockup. Summary strip (SKUs
+  tracked, count below reorder point, total inventory value, fetch time)
+  plus a per-SKU row showing on-hand vs. reorder point (flagged if below),
+  days of safety stock (same formula as the scoring engine:
+  `onHandUnits / avgDailyUnitsSold`), unit price, and alternate-warehouse
+  availability. This is the single most important placeholder to have
+  fixed before showing anyone this build — ERP/Excel connectivity is the
+  actual product thesis, and until this existed a prospect had no way to
+  see it working at all. Verified headless with mocked data (math checks
+  out: 96×249 + 400×1450 = 603,904) and confirmed live against the real
+  deployed `erp-inventory` endpoint.
 
 ## Scoring engine (step 4)
 
