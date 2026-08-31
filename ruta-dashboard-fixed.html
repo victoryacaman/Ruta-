@@ -161,10 +161,14 @@ button:disabled{opacity:.55;cursor:default}
 .storm-row strong{font-size:13px}
 .storm-row p{color:#a8a8b0;font-size:11px;margin:5px 0 0}
 
+/* --- Additions: language toggle --- */
+.lang-toggle{display:block;width:42px;margin:0 0 10px;border:1px solid var(--line);color:#c9c9d1;background:var(--card);border-radius:9px;height:30px;font-size:11px;font-weight:800;letter-spacing:.03em;cursor:pointer}
+.lang-toggle:hover{color:#fff;background:#1c1c20}
+
 </style>
 </head>
 <body class="antialiased">
-<div class="app-shell"><aside class="sidebar"><div class="brand"><span class="brand-mark">U</span><span>UTOPIA</span></div><nav class="nav" aria-label="Main navigation"><button class="nav-item active" data-view="command" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⌁</span><span>Command</span></button><button class="nav-item " data-view="risks" onclick="selectNav(this)"><span class="icon" aria-hidden="true">△</span><span>Risks</span></button><button class="nav-item " data-view="inventory" onclick="selectNav(this)"><span class="icon" aria-hidden="true">▦</span><span>Inventory</span></button><button class="nav-item " data-view="shipments" onclick="selectNav(this)"><span class="icon" aria-hidden="true">↗</span><span>Shipments</span></button><button class="nav-item " data-view="decisions" onclick="selectNav(this)"><span class="icon" aria-hidden="true">✓</span><span>Decisions</span></button></nav><div class="sidebar-bottom"><button class="nav-item add-tools-nav" data-view="add-tools" onclick="selectNav(this)"><span class="icon" aria-hidden="true">＋</span><span>Add tools</span></button><button class="nav-item " data-view="integrations" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⎋</span><span>Integrations</span></button><button class="nav-item" data-view="settings" onclick="selectNav(this)"><span class="icon" aria-hidden="true">·</span><span>Settings</span></button><div class="profile"><span class="avatar">AV</span><span><strong>Ana Valle</strong><small>Procurement lead</small></span></div></div></aside><main class="main"><header class="topbar"><div><p class="eyebrow" id="todayLabel">…</p><h1>Good morning, Ana.</h1></div><div class="top-actions"><button class="sync" id="erpSyncButton" onclick="showToast('This demo runs on sample inventory data. Connecting your ERP — Excel, Odoo, or SAP Business One — is a configuration step, not new engineering.')"><span class="pulse" id="erpSyncPulse" style="background:#c9d0d3;box-shadow:0 0 0 3px #eef1f2"></span>ERP: not connected <small>Sample data</small></button><button class="icon-button" aria-label="Notifications" onclick="showNotificationSummary()">♢<span class="notification-dot"></span></button></div></header><div class="mode-banner mode-banner-demo" id="modeBanner">
+<div class="app-shell"><aside class="sidebar"><div class="brand"><span class="brand-mark">U</span><span>UTOPIA</span></div><nav class="nav" aria-label="Main navigation"><button class="nav-item active" data-view="command" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⌁</span><span>Command</span></button><button class="nav-item " data-view="risks" onclick="selectNav(this)"><span class="icon" aria-hidden="true">△</span><span>Risks</span></button><button class="nav-item " data-view="inventory" onclick="selectNav(this)"><span class="icon" aria-hidden="true">▦</span><span>Inventory</span></button><button class="nav-item " data-view="shipments" onclick="selectNav(this)"><span class="icon" aria-hidden="true">↗</span><span>Shipments</span></button><button class="nav-item " data-view="decisions" onclick="selectNav(this)"><span class="icon" aria-hidden="true">✓</span><span>Decisions</span></button></nav><div class="sidebar-bottom"><button class="nav-item add-tools-nav" data-view="add-tools" onclick="selectNav(this)"><span class="icon" aria-hidden="true">＋</span><span>Add tools</span></button><button class="nav-item " data-view="integrations" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⎋</span><span>Integrations</span></button><button class="nav-item" data-view="settings" onclick="selectNav(this)"><span class="icon" aria-hidden="true">·</span><span>Settings</span></button><button class="lang-toggle" id="langToggleBtn" onclick="toggleLang()" aria-label="Toggle language">ES</button><div class="profile"><span class="avatar">AV</span><span><strong>Ana Valle</strong><small>Procurement lead</small></span></div></div></aside><main class="main"><header class="topbar"><div><p class="eyebrow" id="todayLabel">…</p><h1>Good morning, Ana.</h1></div><div class="top-actions"><button class="sync" id="erpSyncButton" onclick="showToast('This demo runs on sample inventory data. Connecting your ERP — Excel, Odoo, or SAP Business One — is a configuration step, not new engineering.')"><span class="pulse" id="erpSyncPulse" style="background:#c9d0d3;box-shadow:0 0 0 3px #eef1f2"></span>ERP: not connected <small>Sample data</small></button><button class="icon-button" aria-label="Notifications" onclick="showNotificationSummary()">♢<span class="notification-dot"></span></button></div></header><div class="mode-banner mode-banner-demo" id="modeBanner">
   <div class="mode-banner-text">
     <span class="mode-banner-tag" id="modeBannerTag">SCORING ENGINE: LIVE</span>
     <span id="modeBannerCopy">— the risk-brief card, Signal Watch, metrics, and Decision Queue below are all computed from real Open-Meteo + NOAA/NHC data combined with real math. The underlying SKU inventory numbers shown here are sample data — connecting your own ERP is a configuration step away.</span>
@@ -196,7 +200,227 @@ var WHATSAPP_NUMBER = "50499394433"; // real verified test recipient (see CLAUDE
 var RISK_RECOMMENDATION_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/risk-recommendation";
 
 var mainContent = null;
+var originalCommandHtml = null; // pristine English Command markup, captured once before any translation/dynamic update -- resetting to this on every re-render is what makes toggling language back to English actually work, instead of static labels getting stuck in whatever language they were last translated to
+var originalSidebarHtml = null; // same idea for the sidebar, which applyI18n() alone can't reset since it's additive-only
 var lastResult = null; // cached so undoDismiss() can re-render without refetching
+var currentView = 'command'; // tracked so the language toggle knows what to re-render
+
+// --- i18n: Spanish default (pilot audience is Honduran companies), English
+// toggle. Two mechanisms: (1) a static-string dictionary (T) applied via a
+// generic text-node walk (applyI18n) after every render, so the ~150+
+// static labels/buttons/headers across all 8 views translate without
+// touching each one by hand; (2) tr(en, es) for sentences built from live
+// data (severity, counts, names), called directly at each build site since
+// exact-string matching can't handle interpolated content.
+var LANG = localStorage.getItem('utopia_lang') || 'es';
+
+function tr(en, es){ return LANG === 'es' ? es : en; }
+function localeStr(){ return LANG === 'es' ? 'es-HN' : 'en-US'; }
+
+var T = {
+  // Sidebar / nav
+  'Command': 'Comando', 'Risks': 'Riesgos', 'Inventory': 'Inventario',
+  'Shipments': 'Envíos', 'Decisions': 'Decisiones', 'Add tools': 'Agregar herramientas',
+  'Integrations': 'Integraciones', 'Settings': 'Configuración',
+  'Procurement lead': 'Jefa de compras', 'Good morning, Ana.': 'Buenos días, Ana.',
+  // Topbar / ERP button / mode banner
+  'ERP: not connected': 'ERP: no conectado', 'Sample data': 'Datos de muestra',
+  'This demo runs on sample inventory data. Connecting your ERP — Excel, Odoo, or SAP Business One — is a configuration step, not new engineering.':
+    'Esta demo funciona con datos de inventario de muestra. Conectar tu ERP — Excel, Odoo o SAP Business One — es un paso de configuración, no ingeniería nueva.',
+  'SCORING ENGINE: LIVE': 'MOTOR DE PUNTUACIÓN: EN VIVO',
+  '— the risk-brief card, Signal Watch, metrics, and Decision Queue below are all computed from real Open-Meteo + NOAA/NHC data combined with real math. The underlying SKU inventory numbers shown here are sample data — connecting your own ERP is a configuration step away.':
+    '— la tarjeta de riesgo, Monitor de Señales, las métricas y la Cola de Decisiones se calculan con datos reales de Open-Meteo + NOAA/NHC y matemática real. Los números de inventario por SKU son datos de muestra — conectar tu propio ERP es solo un paso de configuración.',
+  // Command: risk brief
+  'Corridor': 'Corredor', 'LOADING': 'CARGANDO',
+  'Checking live weather and storm signals…': 'Consultando señales de clima y tormentas en vivo…',
+  "Fetching Open-Meteo's 7-day outlook and NOAA/NHC's active-storm feed for your configured location.":
+    'Consultando el pronóstico de 7 días de Open-Meteo y el feed de tormentas activas de NOAA/NHC para tu ubicación configurada.',
+  // Metrics
+  'INVENTORY AT RISK': 'INVENTARIO EN RIESGO', 'ACTIVE DISRUPTIONS': 'INTERRUPCIONES ACTIVAS',
+  'SKUS AT RISK': 'SKUS EN RIESGO', 'SERVICE COVERAGE': 'COBERTURA DE SERVICIO',
+  'Loading…': 'Cargando…', 'Demo ERP data': 'Datos de ERP de muestra',
+  // Decision Queue
+  'DECISION QUEUE': 'COLA DE DECISIONES', 'Actions that need your attention': 'Acciones que requieren tu atención',
+  'View all cases': 'Ver todos los casos',
+  'This view surfaces the single highest-priority recommendation, live. A full multi-case list is part of the complete build.':
+    'Esta vista muestra la recomendación de mayor prioridad, en vivo. Una lista completa de casos es parte de la versión completa.',
+  'Urgent': 'Urgente', 'Review': 'Revisar', 'Decision recommended today': 'Decisión recomendada hoy',
+  'Computing…': 'Calculando…', 'Computing recommendation…': 'Calculando recomendación…',
+  'Combining the live corridor signal with current inventory levels.': 'Combinando la señal del corredor en vivo con los niveles de inventario actuales.',
+  'RECOMMENDED RESPONSE': 'RESPUESTA RECOMENDADA', 'ROI': 'ROI', 'return': 'retorno',
+  'Why this recommendation': 'Por qué esta recomendación',
+  'Compare all options': 'Comparar todas las opciones',
+  'The recommendation shown is what the live scoring math currently ranks highest. Side-by-side comparison is part of the complete build.':
+    'La recomendación mostrada es la que la matemática de puntuación en vivo clasifica como la mejor. La comparación lado a lado es parte de la versión completa.',
+  'Approve recommendation': 'Aprobar recomendación', '✕ Not now': '✕ Ahora no',
+  'No purchase, transfer or supplier action occurs without your authorization.':
+    'Ninguna compra, transferencia o acción con proveedores ocurre sin tu autorización.',
+  'WhatsApp preview · sent when you click below': 'Vista previa de WhatsApp · se envía al hacer clic abajo',
+  'Open in WhatsApp': 'Abrir en WhatsApp',
+  "Dismissed — won't resurface unless the storm track or PO status changes.":
+    'Descartado — no reaparecerá a menos que cambie la trayectoria de la tormenta o el estado de la orden.',
+  'No urgent inventory actions right now.': 'No hay acciones urgentes de inventario en este momento.',
+  // Signal Watch
+  'SIGNAL WATCH': 'MONITOR DE SEÑALES', 'Operational inputs': 'Entradas operativas', 'CONNECTABLE': 'CONECTABLE',
+  'Weather': 'Clima', 'Fetching Open-Meteo 7-day outlook…': 'Consultando pronóstico de 7 días de Open-Meteo…',
+  'Tropical systems': 'Sistemas tropicales', 'Fetching NOAA/NHC active-storm feed…': 'Consultando feed de tormentas activas de NOAA/NHC…',
+  'Carrier milestones': 'Hitos del transportista', 'Connect with company credentials': 'Conectar con credenciales de la empresa',
+  'Excel / ERP context': 'Contexto de Excel / ERP', 'Maps signals to actual inventory exposure': 'Vincula señales con la exposición real del inventario',
+  'READY': 'LISTO', 'READ': 'LECTURA', 'Open signal center': 'Abrir centro de señales',
+  'Signal Watch here already reflects the live feeds in real time. A dedicated signal center is part of the complete build.':
+    'Monitor de Señales ya refleja los feeds en vivo en tiempo real. Un centro de señales dedicado es parte de la versión completa.',
+  // Shared across sub-views
+  '← Back to Command': '← Volver a Comando', 'Refresh': 'Actualizar',
+  // Shipments
+  'Driver/provider tracking agent': 'Agente de rastreo de conductor/proveedor',
+  'Asks a driver for a tracking number or ETA over WhatsApp instead of calling them — replaces the manual "call to check where the truck is" pattern. Real send + real inbound webhook; shipments are added manually below until a TMS/ERP shipment feed is connected.':
+    'Le pide al conductor un número de rastreo o ETA por WhatsApp en vez de llamarlo — reemplaza el patrón manual de "llamar para ver dónde va el camión". Envío real + webhook de entrada real; los envíos se agregan manualmente abajo hasta conectar un feed de envíos de TMS/ERP.',
+  'ADD SHIPMENT': 'AGREGAR ENVÍO', 'New test shipment': 'Nuevo envío de prueba',
+  'Driver name': 'Nombre del conductor', 'Driver WhatsApp number': 'Número de WhatsApp del conductor',
+  'Deadline': 'Fecha límite', 'Description': 'Descripción', 'Add shipment': 'Agregar envío',
+  'ACTIVE SHIPMENTS': 'ENVÍOS ACTIVOS', 'Awaiting or tracked': 'En espera o rastreados',
+  'No shipments yet — add one above to try the tracking agent.': 'Aún no hay envíos — agrega uno arriba para probar el agente de rastreo.',
+  'No deadline set': 'Sin fecha límite', 'Overdue — ': 'Atrasado — ',
+  'Tracking number:': 'Número de rastreo:', 'Driver reply:': 'Respuesta del conductor:',
+  '✓ Tracking received': '✓ Rastreo recibido', 'Awaiting reply…': 'Esperando respuesta…',
+  'Request tracking update': 'Solicitar actualización de rastreo',
+  'Tracking received': 'Rastreo recibido', 'Awaiting reply': 'Esperando respuesta', 'Not yet contacted': 'Aún no contactado',
+  'Awaiting reply…': 'Esperando respuesta…',
+  'Shipment added.': 'Envío agregado.',
+  // Inventory
+  'ERP connector': 'Conector ERP',
+  'Live inventory levels feeding the risk scoring engine. Excel/Odoo/SAP Business One connect here the same way — this is the actual data shape the corridor signal is measured against, not a mockup.':
+    'Niveles de inventario en vivo que alimentan el motor de puntuación de riesgo. Excel/Odoo/SAP Business One se conectan aquí de la misma forma — esta es la estructura real de datos contra la que se mide la señal del corredor, no una maqueta.',
+  'SKUS TRACKED': 'SKUS RASTREADOS', 'This connector': 'Este conector',
+  'BELOW REORDER POINT': 'BAJO PUNTO DE REORDEN', 'Needs attention': 'Requiere atención',
+  'INVENTORY VALUE': 'VALOR DE INVENTARIO', 'On-hand × unit price': 'Existencia × precio unitario',
+  'FETCHED': 'CONSULTADO', 'Live on every load': 'En vivo en cada carga',
+  'SKU DETAIL': 'DETALLE DE SKU', 'On-hand vs. safety stock': 'Existencia vs. stock de seguridad',
+  'No inventory items returned by this connector.': 'Este conector no devolvió artículos de inventario.',
+  'reorder pt': 'pto. de reorden', 'days': 'días', 'safety stock': 'stock de seguridad',
+  'units at': 'unidades en', 'No alternate warehouse stock': 'Sin stock en almacén alterno',
+  // Risks
+  'Full signal detail': 'Detalle completo de la señal',
+  "Command shows a one-line summary of this; here's the actual day-by-day forecast and storm detail the severity is computed from.":
+    'Comando muestra un resumen de una línea de esto; aquí está el pronóstico día a día y el detalle de tormentas con el que se calcula la severidad.',
+  '7-DAY WEATHER OUTLOOK': 'PRONÓSTICO DE 7 DÍAS', 'TROPICAL SYSTEMS': 'SISTEMAS TROPICALES',
+  'Active storms in range': 'Tormentas activas en rango', 'Your region': 'Tu región',
+  'Weather feed unavailable — ': 'Feed de clima no disponible — ', 'No forecast data.': 'Sin datos de pronóstico.',
+  'Flagged': 'Marcado', 'km away': 'km de distancia',
+  'Storm feed unavailable — ': 'Feed de tormentas no disponible — ',
+  'Clear sky': 'Cielo despejado', 'Mainly clear': 'Mayormente despejado', 'Partly cloudy': 'Parcialmente nublado', 'Overcast': 'Nublado',
+  'Fog': 'Niebla', 'Depositing rime fog': 'Niebla con escarcha',
+  'Light drizzle': 'Llovizna ligera', 'Moderate drizzle': 'Llovizna moderada', 'Dense drizzle': 'Llovizna densa',
+  'Slight rain': 'Lluvia ligera', 'Moderate rain': 'Lluvia moderada', 'Heavy rain': 'Lluvia fuerte',
+  'Slight rain showers': 'Chubascos ligeros', 'Moderate rain showers': 'Chubascos moderados', 'Violent rain showers': 'Chubascos violentos',
+  'Thunderstorm': 'Tormenta eléctrica', 'Thunderstorm with slight hail': 'Tormenta con granizo ligero', 'Thunderstorm with heavy hail': 'Tormenta con granizo fuerte',
+  // Integrations
+  'Connected data sources': 'Fuentes de datos conectadas',
+  'Every live feed this build actually uses, and its real status right now — not a marketing list.':
+    'Cada feed en vivo que esta versión realmente usa, y su estado real ahora mismo — no una lista de marketing.',
+  'Open-Meteo': 'Open-Meteo', '7-day weather outlook — precipitation, wind, storm codes': 'Pronóstico de 7 días — precipitación, viento, códigos de tormenta',
+  'NOAA/NHC': 'NOAA/NHC', 'Active tropical storm tracking, relayed via storm-signal': 'Rastreo de tormentas tropicales activas, retransmitido vía storm-signal',
+  'WhatsApp Cloud API': 'API de WhatsApp Cloud',
+  'Two-way — proactive send (approved template) and inbound driver replies, both proven': 'Bidireccional — envío proactivo (plantilla aprobada) y respuestas entrantes del conductor, ambos comprobados',
+  'Live': 'En vivo', 'Demo data': 'Datos de muestra',
+  'Running in demo mode — sample inventory. Connecting your Odoo or SAP Business One is a configuration change.':
+    'Funcionando en modo demo — inventario de muestra. Conectar tu Odoo o SAP Business One es un cambio de configuración.',
+  // Settings
+  'Configuration': 'Configuración',
+  'The monitored location drives every signal on Command. Everything else here is read-only status — ERP and WhatsApp credentials are configured directly with your Utopia contact, never through a form like this.':
+    'La ubicación monitoreada impulsa cada señal en Comando. Todo lo demás aquí es estado de solo lectura — las credenciales de ERP y WhatsApp se configuran directamente con tu contacto de Utopia, nunca mediante un formulario como este.',
+  'MONITORED LOCATION': 'UBICACIÓN MONITOREADA', 'Where the signal is measured': 'Dónde se mide la señal',
+  'Location name': 'Nombre de la ubicación', 'Latitude': 'Latitud', 'Longitude': 'Longitud',
+  'Relevant storm radius (km)': 'Radio de tormentas relevante (km)', 'Save location': 'Guardar ubicación',
+  'Connected — test mode': 'Conectado — modo de prueba',
+  'Monitored location updated — takes effect on the next signal computation.': 'Ubicación monitoreada actualizada — entra en vigor en el próximo cálculo de señal.',
+  'Unavailable': 'No disponible',
+  // Add tools
+  'Connect your ERP': 'Conecta tu ERP',
+  'Two real adapters exist today, both written against documented, stable APIs. Onboarding is a config change your Utopia contact makes with you — not a self-service credential form, since ERP passwords are never handled client-side.':
+    'Hoy existen dos adaptadores reales, ambos escritos contra APIs documentadas y estables. La incorporación es un cambio de configuración que tu contacto de Utopia hace contigo — no un formulario de autoservicio, ya que las contraseñas del ERP nunca se manejan del lado del cliente.',
+  'Currently running': 'Actualmente en ejecución',
+  'The Inventory and Decisions views are computed from whichever provider is configured — right now, sample data until a real ERP is connected.':
+    'Las vistas de Inventario y Decisiones se calculan según el proveedor configurado — por ahora, datos de muestra hasta conectar un ERP real.',
+  // Decisions
+  'Signal & recommendation history': 'Historial de señales y recomendaciones',
+  'SNAPSHOTS COMPUTED': 'SEÑALES CALCULADAS', 'Every dashboard load': 'Cada carga del panel',
+  'RECOMMENDATIONS SHOWN': 'RECOMENDACIONES MOSTRADAS', 'APPROVAL RATE': 'TASA DE APROBACIÓN',
+  'Of decisions actually made': 'De las decisiones realmente tomadas',
+  'NO ACTION TAKEN': 'SIN ACCIÓN TOMADA', 'Recommendation shown, no click': 'Recomendación mostrada, sin clic',
+  'HISTORY': 'HISTORIAL', 'Most recent first': 'Más recientes primero',
+  'No signal history yet — load the Command view a few times to build one up.':
+    'Aún no hay historial de señales — carga la vista Comando varias veces para acumular uno.',
+  'approved': 'aprobado', 'dismissed': 'descartado',
+  'No recommendation — signal was calm': 'Sin recomendación — la señal estaba tranquila',
+  'no transfer source': 'sin fuente de transferencia',
+  '✓ Approved': '✓ Aprobado', '✕ Dismissed': '✕ Descartado', 'No action': 'Sin acción', 'Not applicable': 'No aplica',
+  'Sending…': 'Enviando…', 'Tracking request sent to the driver over WhatsApp.': 'Solicitud de rastreo enviada al conductor por WhatsApp.',
+};
+
+// Applies T against every text node under root, in place, idempotently —
+// safe to call repeatedly since it always re-derives from the (already
+// English, as authored) DOM the render functions just built.
+function applyI18n(root){
+  if(!root || LANG === 'en') return;
+  var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  var node;
+  while(node = walker.nextNode()){
+    var trimmed = node.nodeValue.trim();
+    if(trimmed && T[trimmed]){
+      node.nodeValue = node.nodeValue.replace(trimmed, T[trimmed]);
+    }
+  }
+}
+function maybeTranslateNode(n){
+  if(n.nodeType === 3){
+    var trimmed = n.nodeValue.trim();
+    if(trimmed && T[trimmed]) n.nodeValue = n.nodeValue.replace(trimmed, T[trimmed]);
+  } else if(n.nodeType === 1){
+    applyI18n(n);
+  }
+}
+// Catches every later DOM update too (a shipments list arriving after its
+// fetch, decisions history rows, etc.) without needing a manual applyI18n()
+// call sprinkled after each async render path.
+var i18nObserver = new MutationObserver(function(mutations){
+  if(LANG === 'en') return;
+  mutations.forEach(function(m){ m.addedNodes.forEach(maybeTranslateNode); });
+});
+
+function toggleLang(){
+  LANG = LANG === 'es' ? 'en' : 'es';
+  localStorage.setItem('utopia_lang', LANG);
+  rerenderCurrentView();
+}
+
+function rerenderCurrentView(){
+  // The sidebar (not main.main) is what carries #langToggleBtn now, since
+  // it's the one shell element every view render leaves untouched -- reset
+  // it from the pristine snapshot first (same reason as Command's main.main
+  // reset below), then restore active-nav state and the button's label,
+  // both of which the reset just wiped.
+  var sidebar = document.querySelector('.sidebar');
+  sidebar.innerHTML = originalSidebarHtml;
+  sidebar.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+  var activeNav = sidebar.querySelector('.nav-item[data-view="' + currentView + '"]');
+  if(activeNav) activeNav.classList.add('active');
+  var btn = sidebar.querySelector('#langToggleBtn');
+  if(btn) btn.textContent = LANG === 'es' ? 'EN' : 'ES';
+  applyI18n(sidebar); // no-ops when LANG === 'en', translates when LANG === 'es'
+  if(currentView === 'command'){
+    document.querySelector('main.main').innerHTML = originalCommandHtml; // reset to pristine English first, so toggling back to English doesn't leave static labels stuck in the other language
+    if(lastResult){ renderAll(lastResult); }
+    mainContent = document.querySelector('main.main').innerHTML;
+  } else {
+    var fn = {
+      shipments: renderShipmentsView, risks: renderRisksView, inventory: renderInventoryView,
+      integrations: renderIntegrationsView, settings: renderSettingsView,
+      'add-tools': renderAddToolsView, decisions: renderDecisionsView,
+    }[currentView];
+    if(fn) fn();
+  }
+}
 
 function formatLps(n){
   return "L " + Math.round(n).toLocaleString();
@@ -209,33 +433,33 @@ function skuWord(n){
 // Matches the exact badge wording set in renderCorridorCard, so a sentence
 // mentioning severity never contradicts what the badge itself says.
 function severityLabel(severity){
-  return severity === 'unknown' ? 'signal unavailable'
-    : severity === 'high' ? 'high exposure'
-    : severity === 'medium' ? 'elevated'
-    : 'monitoring';
+  return severity === 'unknown' ? tr('signal unavailable', 'señal no disponible')
+    : severity === 'high' ? tr('high exposure', 'alta exposición')
+    : severity === 'medium' ? tr('elevated', 'elevado')
+    : tr('monitoring', 'monitoreo');
 }
 
 function renderSignalWatch(corridor, timeLabel, locationName){
-  document.getElementById('weatherLocationLabel').textContent = locationName + ' weather';
+  document.getElementById('weatherLocationLabel').textContent = locationName + ' ' + tr('weather', 'clima');
   if(corridor.weatherError){
-    document.getElementById('weatherSummary').textContent = 'Fetch failed — ' + corridor.weatherError;
-    document.getElementById('weatherTime').textContent = 'ERROR';
+    document.getElementById('weatherSummary').textContent = tr('Fetch failed — ', 'Error al obtener — ') + corridor.weatherError;
+    document.getElementById('weatherTime').textContent = tr('ERROR', 'ERROR');
   } else {
     document.getElementById('weatherSummary').textContent = corridor.flaggedWeatherDays
-      ? corridor.flaggedWeatherDays + ' day(s) flagged for heavy rain/thunderstorms/high wind in the 7-day outlook'
-      : 'No severe weather in the 7-day outlook';
-    document.getElementById('weatherTime').textContent = 'LIVE ' + timeLabel;
+      ? corridor.flaggedWeatherDays + tr(' day(s) flagged for heavy rain/thunderstorms/high wind in the 7-day outlook', ' día(s) marcado(s) por lluvia fuerte, tormentas o viento alto en el pronóstico de 7 días')
+      : tr('No severe weather in the 7-day outlook', 'Sin clima severo en el pronóstico de 7 días');
+    document.getElementById('weatherTime').textContent = tr('LIVE ', 'EN VIVO ') + timeLabel;
   }
   if(corridor.stormError){
-    document.getElementById('stormSummary').textContent = 'Fetch failed — ' + corridor.stormError;
-    document.getElementById('stormTime').textContent = 'ERROR';
+    document.getElementById('stormSummary').textContent = tr('Fetch failed — ', 'Error al obtener — ') + corridor.stormError;
+    document.getElementById('stormTime').textContent = tr('ERROR', 'ERROR');
   } else {
     document.getElementById('stormSummary').textContent = corridor.relevantStorms.length
-      ? corridor.relevantStorms.length + ' active within ' + corridor.relevantRadiusKm.toLocaleString() + 'km (' + corridor.relevantStorms.map(function(s){return s.name;}).join(', ') + ')'
-      : 'No active tropical systems within ' + corridor.relevantRadiusKm.toLocaleString() + 'km';
-    document.getElementById('stormTime').textContent = 'LIVE ' + timeLabel;
+      ? corridor.relevantStorms.length + tr(' active within ', ' activa(s) dentro de ') + corridor.relevantRadiusKm.toLocaleString() + 'km (' + corridor.relevantStorms.map(function(s){return s.name;}).join(', ') + ')'
+      : tr('No active tropical systems within ', 'Sin sistemas tropicales activos dentro de ') + corridor.relevantRadiusKm.toLocaleString() + 'km';
+    document.getElementById('stormTime').textContent = tr('LIVE ', 'EN VIVO ') + timeLabel;
   }
-  document.getElementById('signalUpdatedNote').textContent = 'signals last fetched ' + timeLabel;
+  document.getElementById('signalUpdatedNote').textContent = tr('signals last fetched ', 'señales obtenidas por última vez ') + timeLabel;
 }
 
 function renderCorridorCard(corridor, timeLabel, locationName){
@@ -246,46 +470,51 @@ function renderCorridorCard(corridor, timeLabel, locationName){
   var headline = document.getElementById('riskHeadline');
   var copy = document.getElementById('riskCopy');
 
-  document.getElementById('riskLocationLabel').textContent = locationName + ' corridor';
+  document.getElementById('riskLocationLabel').textContent = locationName + ' ' + tr('corridor', 'corredor');
 
   badge.classList.remove('severity-low', 'severity-medium', 'severity-high', 'severity-unknown');
   if(corridor.severity === 'unknown'){
     brief.classList.add('risk-brief-unknown');
     badge.classList.add('severity-unknown');
-    badge.textContent = 'SIGNAL UNAVAILABLE';
+    badge.textContent = tr('SIGNAL UNAVAILABLE', 'SEÑAL NO DISPONIBLE');
     icon.textContent = '?';
-    headline.textContent = 'Live corridor signal temporarily unavailable';
+    headline.textContent = tr('Live corridor signal temporarily unavailable', 'Señal del corredor en vivo temporalmente no disponible');
   } else if(corridor.severity === 'high'){
     badge.classList.add('severity-high');
-    badge.textContent = 'HIGH EXPOSURE';
+    badge.textContent = tr('HIGH EXPOSURE', 'ALTA EXPOSICIÓN');
     icon.textContent = '!';
-    headline.textContent = 'Active tropical system may affect the ' + locationName + ' corridor';
+    headline.textContent = tr('Active tropical system may affect the ', 'Un sistema tropical activo podría afectar el corredor de ') + locationName + tr(' corridor', '');
   } else if(corridor.severity === 'medium'){
     brief.classList.add('risk-brief-medium');
     badge.classList.add('severity-medium');
-    badge.textContent = 'ELEVATED';
+    badge.textContent = tr('ELEVATED', 'ELEVADO');
     icon.textContent = '!';
-    headline.textContent = 'Elevated weather/storm signal for the ' + locationName + ' corridor this week';
+    headline.textContent = tr('Elevated weather/storm signal for the ', 'Señal elevada de clima/tormenta para el corredor de ') + locationName + tr(' corridor this week', ' esta semana');
   } else {
     brief.classList.add('risk-brief-low');
     badge.classList.add('severity-low');
-    badge.textContent = 'MONITORING';
+    badge.textContent = tr('MONITORING', 'MONITOREANDO');
     icon.textContent = '✓';
-    headline.textContent = 'No active tropical systems or severe weather flagged for ' + locationName + ' this week';
+    headline.textContent = tr('No active tropical systems or severe weather flagged for ', 'Sin sistemas tropicales activos ni clima severo marcado para ') + locationName + tr(' this week', ' esta semana');
   }
   var reasons = corridor.reasons || [];
   if(corridor.weatherError && corridor.stormError){
-    reasons = ['Both live feeds failed to load — see Signal Watch panel for details'];
+    reasons = [tr('Both live feeds failed to load — see Signal Watch panel for details', 'Ambos feeds en vivo fallaron al cargar — ver el panel de Monitor de Señales para más detalles')];
   }
   copy.textContent = reasons.length
     ? reasons.join('. ') + '.'
-    : 'Open-Meteo’s 7-day outlook and NOAA/NHC’s active-storm feed show nothing unusual for the corridor right now.';
+    : tr('Open-Meteo’s 7-day outlook and NOAA/NHC’s active-storm feed show nothing unusual for the corridor right now.',
+         'El pronóstico de 7 días de Open-Meteo y el feed de tormentas activas de NOAA/NHC no muestran nada inusual para el corredor en este momento.');
 
+  // Note: corridor.reasons itself comes from the server (risk-recommendation)
+  // in English regardless of LANG -- translating those would need the
+  // Edge Function to be bilingual, which is out of scope for this pass.
+  // Disclosed in CLAUDE.md rather than papered over with a fragile regex.
   var evidenceRow = document.getElementById('riskEvidenceRow');
   var evidenceParts = [
-    (corridor.weatherError ? '?' : corridor.flaggedWeatherDays) + ' severe-weather day(s) in 7-day outlook',
-    (corridor.stormError ? '?' : corridor.relevantStorms.length) + ' active storm(s) within ' + corridor.relevantRadiusKm.toLocaleString() + 'km',
-    'updated ' + timeLabel
+    (corridor.weatherError ? '?' : corridor.flaggedWeatherDays) + tr(' severe-weather day(s) in 7-day outlook', ' día(s) de clima severo en el pronóstico de 7 días'),
+    (corridor.stormError ? '?' : corridor.relevantStorms.length) + tr(' active storm(s) within ', ' tormenta(s) activa(s) dentro de ') + corridor.relevantRadiusKm.toLocaleString() + 'km',
+    tr('updated ', 'actualizado ') + timeLabel
   ];
   evidenceRow.innerHTML = evidenceParts.map(function(p){ return '<span>' + p + '</span>'; }).join('<span>•</span>');
 }
@@ -293,27 +522,27 @@ function renderCorridorCard(corridor, timeLabel, locationName){
 function renderMetrics(corridor, rec){
   document.getElementById('metricExposureValue').textContent = rec.applicable ? formatLps(rec.totalExposureLps) : 'L 0';
   document.getElementById('metricExposureNote').textContent = rec.applicable
-    ? rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' at risk'
-    : 'No SKUs at risk right now';
+    ? rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + tr(' at risk', ' en riesgo')
+    : tr('No SKUs at risk right now', 'Sin SKUs en riesgo por ahora');
 
   var disruptionCount = corridor.relevantStorms.length + (corridor.flaggedWeatherDays > 0 ? 1 : 0);
   document.getElementById('metricDisruptionsValue').textContent = String(disruptionCount).padStart(2, '0');
   document.getElementById('metricDisruptionsNote').textContent =
-    corridor.relevantStorms.length + ' storm(s) · ' + (corridor.flaggedWeatherDays > 0 ? '1' : '0') + ' severe-weather flag';
+    corridor.relevantStorms.length + tr(' storm(s) · ', ' tormenta(s) · ') + (corridor.flaggedWeatherDays > 0 ? '1' : '0') + tr(' severe-weather flag', ' alerta de clima severo');
 
   document.getElementById('metricStockoutsValue').textContent = rec.applicable ? String(rec.atRiskSkus.length) : '0';
   document.getElementById('metricStockoutsNote').textContent = corridor.expectedDelayDays > 0
-    ? 'Within the ' + corridor.expectedDelayDays + '-day expected delay'
-    : 'No delay currently expected';
+    ? tr('Within the ', 'Dentro del retraso esperado de ') + corridor.expectedDelayDays + tr('-day expected delay', ' días')
+    : tr('No delay currently expected', 'Sin retraso esperado actualmente');
 
   document.getElementById('metricCoverageValue').textContent = (rec.applicable ? rec.avgCoveragePct : 100) + '%';
 }
 
 function renderDecisionQueue(corridor, rec, erpProvider){
   var tag = document.getElementById('erpDataTag');
-  tag.textContent = erpProvider === 'demo' ? 'Demo ERP data'
-    : (erpProvider === 'odoo' || erpProvider === 'sap_b1') ? 'Live: ' + erpProvider
-    : 'ERP data unavailable';
+  tag.textContent = erpProvider === 'demo' ? tr('Demo ERP data', 'Datos de ERP de muestra')
+    : (erpProvider === 'odoo' || erpProvider === 'sap_b1') ? tr('Live: ', 'En vivo: ') + erpProvider
+    : tr('ERP data unavailable', 'Datos de ERP no disponibles');
 
   var card = document.getElementById('decisionCard');
   var empty = document.getElementById('decisionEmptyState');
@@ -324,10 +553,12 @@ function renderDecisionQueue(corridor, rec, erpProvider){
     card.setAttribute('hidden', '');
     empty.removeAttribute('hidden');
     document.getElementById('decisionEmptyText').textContent = corridor.severity === 'unknown'
-      ? 'Live signal unavailable right now — recommendations are paused rather than guessed. See Signal Watch for details.'
+      ? tr('Live signal unavailable right now — recommendations are paused rather than guessed. See Signal Watch for details.',
+           'Señal en vivo no disponible en este momento — las recomendaciones se pausan en vez de adivinarse. Ver Monitor de Señales para más detalles.')
       : corridor.severity === 'low'
-      ? 'Signal is quiet — no SKUs are projected to run short during the current outlook.'
-      : 'Corridor signal is elevated, but every tracked SKU has enough safety stock to cover the expected ' + corridor.expectedDelayDays + '-day delay.';
+      ? tr('Signal is quiet — no SKUs are projected to run short during the current outlook.',
+           'La señal está tranquila — no se proyecta que ningún SKU se quede corto durante el pronóstico actual.')
+      : tr('Corridor signal is elevated, but every tracked SKU has enough safety stock to cover the expected ', 'La señal del corredor está elevada, pero cada SKU rastreado tiene suficiente stock de seguridad para cubrir el retraso esperado de ') + corridor.expectedDelayDays + tr('-day delay.', ' días.');
     return;
   }
 
@@ -335,51 +566,56 @@ function renderDecisionQueue(corridor, rec, erpProvider){
   card.removeAttribute('hidden');
 
   document.getElementById('decisionTag').className = corridor.severity === 'high' ? 'tag tag-urgent' : 'tag tag-normal';
-  document.getElementById('decisionTag').textContent = corridor.severity === 'high' ? 'Urgent' : 'Review';
-  document.getElementById('decisionTime').textContent = 'Computed just now';
+  document.getElementById('decisionTag').textContent = corridor.severity === 'high' ? tr('Urgent', 'Urgente') : tr('Review', 'Revisar');
+  document.getElementById('decisionTime').textContent = tr('Computed just now', 'Calculado hace un momento');
 
   var topSku = rec.atRiskSkus[0]; // sorted by days of safety stock ascending — most urgent first
   document.getElementById('decisionUrgencyNote').textContent =
-    'Act soon — ' + topSku.name + ' projected to run ' + topSku.unitsShort + ' units short within the ' + corridor.expectedDelayDays + '-day expected delay';
+    tr('Act soon — ', 'Actúa pronto — ') + topSku.name + tr(' projected to run ', ' se proyecta que quede corto ') + topSku.unitsShort + tr(' units short within the ', ' unidades dentro del retraso esperado de ') + corridor.expectedDelayDays + tr('-day expected delay', ' días');
 
-  document.getElementById('decisionHeadline').textContent =
-    'Protect ' + rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' during ' + severityLabel(corridor.severity) + ' corridor conditions';
-  document.getElementById('decisionSummary').textContent =
-    'Utopia combined the live corridor signal with current inventory levels (' + erpProvider + ' data) to flag ' +
-    rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' below safety stock for the expected ' + corridor.expectedDelayDays + '-day delay.';
+  document.getElementById('decisionHeadline').textContent = LANG === 'es'
+    ? 'Proteger ' + rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' durante condiciones de corredor ' + severityLabel(corridor.severity)
+    : 'Protect ' + rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' during ' + severityLabel(corridor.severity) + ' corridor conditions';
+  document.getElementById('decisionSummary').textContent = LANG === 'es'
+    ? 'Utopia combinó la señal del corredor en vivo con los niveles de inventario actuales (datos de ' + erpProvider + ') para marcar ' +
+      rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' bajo el stock de seguridad para el retraso esperado de ' + corridor.expectedDelayDays + ' días.'
+    : 'Utopia combined the live corridor signal with current inventory levels (' + erpProvider + ' data) to flag ' +
+      rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' below safety stock for the expected ' + corridor.expectedDelayDays + '-day delay.';
 
   if(rec.topWarehouse){
     document.getElementById('recommendationStrong').textContent =
-      'Transfer ' + rec.totalTransferUnits + ' units from ' + rec.topWarehouse.location;
+      tr('Transfer ', 'Transferir ') + rec.totalTransferUnits + tr(' units from ', ' unidades desde ') + rec.topWarehouse.location;
     document.getElementById('recommendationCostLine').textContent =
-      'Estimated cost ' + formatLps(rec.totalTransferCostLps) + ' · Preserves ' + rec.avgCoveragePct + '% coverage';
+      tr('Estimated cost ', 'Costo estimado ') + formatLps(rec.totalTransferCostLps) + tr(' · Preserves ', ' · Preserva ') + rec.avgCoveragePct + tr('% coverage', '% de cobertura');
   } else {
-    document.getElementById('recommendationStrong').textContent = 'Review manually — no alternate warehouse stock available';
-    document.getElementById('recommendationCostLine').textContent = 'No transfer source found for the affected SKUs';
+    document.getElementById('recommendationStrong').textContent = tr('Review manually — no alternate warehouse stock available', 'Revisar manualmente — sin stock disponible en almacén alterno');
+    document.getElementById('recommendationCostLine').textContent = tr('No transfer source found for the affected SKUs', 'No se encontró fuente de transferencia para los SKUs afectados');
   }
   var roiBadge = document.getElementById('roiBadge');
-  roiBadge.innerHTML = (rec.roiMultiple ? rec.roiMultiple + 'x' : '—') + '<small>return</small>';
+  roiBadge.innerHTML = (rec.roiMultiple ? rec.roiMultiple + 'x' : '—') + '<small>' + tr('return', 'retorno') + '</small>';
 
   var whyItems = (corridor.reasons || []).map(function(r){ return '<li>' + r + '</li>'; });
   rec.atRiskSkus.forEach(function(s){
-    whyItems.push('<li>' + s.name + ' (' + s.sku + '): ' + s.daysOfSafetyStock + ' days of safety stock, short ' +
-      s.unitsShort + ' units (~' + formatLps(s.salesExposureLps) + ' exposure)</li>');
+    whyItems.push('<li>' + s.name + ' (' + s.sku + '): ' + s.daysOfSafetyStock + tr(' days of safety stock, short ', ' días de stock de seguridad, corto por ') +
+      s.unitsShort + tr(' units (~', ' unidades (~') + formatLps(s.salesExposureLps) + tr(' exposure)', ' de exposición)') + '</li>');
   });
   document.getElementById('whyDetail').innerHTML = whyItems.join('');
 
-  var msg = 'Utopia: corridor signal ' + severityLabel(corridor.severity) + ' (' + (corridor.reasons || []).join('; ') + '). ' +
+  // corridor.reasons (embedded below) comes from the server in English
+  // regardless of LANG -- see the note in renderCorridorCard above.
+  var msg = tr('Utopia: corridor signal ', 'Utopia: señal del corredor ') + severityLabel(corridor.severity) + ' (' + (corridor.reasons || []).join('; ') + '). ' +
     (rec.topWarehouse
-      ? 'Recommended: transfer ' + rec.totalTransferUnits + ' units from ' + rec.topWarehouse.location + ' — ' +
-        formatLps(rec.totalTransferCostLps) + ', preserves ' + rec.avgCoveragePct + '% coverage.'
-      : 'No alternate warehouse stock available — manual review needed.') +
-    ' Reply YES to approve or open the app to compare options.';
+      ? tr('Recommended: transfer ', 'Recomendado: transferir ') + rec.totalTransferUnits + tr(' units from ', ' unidades desde ') + rec.topWarehouse.location + ' — ' +
+        formatLps(rec.totalTransferCostLps) + tr(', preserves ', ', preserva ') + rec.avgCoveragePct + tr('% coverage.', '% de cobertura.')
+      : tr('No alternate warehouse stock available — manual review needed.', 'Sin stock disponible en almacén alterno — se necesita revisión manual.')) +
+    tr(' Reply YES to approve or open the app to compare options.', ' Responde SÍ para aprobar o abre la app para comparar opciones.');
   document.getElementById('whatsappMessage').textContent = msg;
   document.getElementById('whatsappLink').href = 'https://wa.me/' + WHATSAPP_NUMBER + '?text=' + encodeURIComponent(msg);
 }
 
 function renderAll(result){
   lastResult = result;
-  var timeLabel = new Date(result.computedAt || Date.now()).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  var timeLabel = new Date(result.computedAt || Date.now()).toLocaleTimeString(localeStr(), { hour: 'numeric', minute: '2-digit' });
   var locationName = result.locationName || 'Your region';
   renderSignalWatch(result.corridor, timeLabel, locationName);
   renderCorridorCard(result.corridor, timeLabel, locationName);
@@ -404,10 +640,16 @@ async function loadRiskRecommendation(){
 }
 
 document.addEventListener('DOMContentLoaded', function(){
+  originalCommandHtml = document.querySelector('main.main').innerHTML; // capture pristine English before any translation touches it
+  originalSidebarHtml = document.querySelector('.sidebar').innerHTML; // same, for the sidebar reset in rerenderCurrentView()
+  document.getElementById('langToggleBtn').textContent = LANG === 'es' ? 'EN' : 'ES';
+  i18nObserver.observe(document.querySelector('main.main'), { childList: true, subtree: true });
+  applyI18n(document.querySelector('main.main')); // translate the static markup already in the DOM (sidebar labels render separately, outside main)
+  applyI18n(document.querySelector('.sidebar'));
   document.getElementById('todayLabel').textContent =
-    new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
+    new Date().toLocaleDateString(localeStr(), { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
   loadRiskRecommendation().finally(function(){
-    mainContent = document.querySelector('main.main').innerHTML; // cache the Command view AFTER live data renders
+    mainContent = document.querySelector('main.main').innerHTML; // cache the Command view AFTER live data renders (and after translation)
   });
 });
 
@@ -435,16 +677,17 @@ function recordEvent(eventType){
 
 function approveRecommendation(){
   recordEvent('approved');
-  var now = new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  var now = new Date().toLocaleTimeString(localeStr(), { hour: 'numeric', minute: '2-digit' });
   var approveBtn = document.getElementById('approveBtn');
-  approveBtn.textContent = '\u2713 Approved \u00b7 ' + now;
+  approveBtn.textContent = '\u2713 ' + tr('Approved', 'Aprobado') + ' \u00b7 ' + now;
   approveBtn.disabled = true;
   approveBtn.classList.add('approved-button');
   var dismissBtn = document.getElementById('dismissBtn');
   if(dismissBtn) dismissBtn.disabled = true;
   var compareBtn = document.getElementById('compareBtn');
   if(compareBtn) compareBtn.disabled = true;
-  showToast('Approval logged and persisted \u2014 Utopia only suggests, so no transfer/purchase/supplier action is sent automatically.');
+  showToast(tr('Approval logged and persisted \u2014 Utopia only suggests, so no transfer/purchase/supplier action is sent automatically.',
+    'Aprobaci\u00f3n registrada y guardada \u2014 Utopia solo sugiere, as\u00ed que ninguna acci\u00f3n de transferencia/compra/proveedor se env\u00eda autom\u00e1ticamente.'));
 }
 function dismissCard(){
   recordEvent('dismissed');
@@ -467,12 +710,12 @@ function showToast(msg){
 }
 
 function showNotificationSummary(){
-  if(!lastResult){ showToast('Signal still loading — try again in a moment.'); return; }
+  if(!lastResult){ showToast(tr('Signal still loading — try again in a moment.', 'La señal sigue cargando — intenta de nuevo en un momento.')); return; }
   var c = lastResult.corridor;
   var rec = lastResult.recommendation;
   var parts = [severityLabel(c.severity) + ' corridor signal'];
   parts.push(rec.applicable ? rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' at risk' : 'no SKUs at risk right now');
-  parts.push('last computed ' + new Date(lastResult.computedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }));
+  parts.push(tr('last computed ', 'calculado por última vez ') + new Date(lastResult.computedAt).toLocaleTimeString(localeStr(), { hour: 'numeric', minute: '2-digit' }));
   showToast(parts.join(' \u00b7 '));
 }
 
@@ -481,6 +724,7 @@ function selectNav(el){
   el.classList.add('active');
   var view = el.getAttribute('data-view');
   var main = document.querySelector('main.main');
+  currentView = view;
 
   if(view === 'command'){
     main.innerHTML = mainContent;
@@ -507,6 +751,7 @@ function selectNav(el){
   }
 }
 function backToCommand(){
+  currentView = 'command';
   document.querySelector('main.main').innerHTML = mainContent;
   document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
   document.querySelector('.nav-item[data-view="command"]').classList.add('active');
@@ -568,7 +813,7 @@ async function loadShipments(){
     var now = Date.now();
     listEl.innerHTML = data.shipments.map(function(s){
       var overdue = s.deadline && new Date(s.deadline).getTime() < now && s.status !== 'tracking_received';
-      var deadlineStr = s.deadline ? new Date(s.deadline).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'No deadline set';
+      var deadlineStr = s.deadline ? new Date(s.deadline).toLocaleString(localeStr(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'No deadline set';
       var detail = '';
       if(s.tracking_number){ detail += '<div class="shipment-detail"><strong>Tracking number:</strong> ' + s.tracking_number + '</div>'; }
       if(s.carrier_eta && !s.tracking_number){ detail += '<div class="shipment-detail"><strong>Driver reply:</strong> ' + s.carrier_eta + '</div>'; }
@@ -578,7 +823,7 @@ async function loadShipments(){
         : 'Request tracking update';
       return '<div class="shipment-card" data-shipment-id="' + s.id + '">' +
         '<div class="shipment-top"><div><strong>' + s.driver_name + '</strong>' +
-        '<div class="shipment-meta">' + s.driver_phone + ' · ' + (overdue ? '<span class="shipment-overdue">Overdue — ' + deadlineStr + '</span>' : deadlineStr) + '</div></div>' +
+        '<div class="shipment-meta">' + s.driver_phone + ' · ' + (overdue ? '<span class="shipment-overdue">' + tr('Overdue — ', 'Atrasado — ') + deadlineStr + '</span>' : deadlineStr) + '</div></div>' +
         '<span class="shipment-status shipment-status-' + s.status + '">' + shipmentStatusLabel(s.status) + '</span></div>' +
         '<div class="shipment-detail">' + s.description + '</div>' +
         detail +
@@ -587,7 +832,7 @@ async function loadShipments(){
         '</div>';
     }).join('');
   } catch(e){
-    listEl.innerHTML = '<div class="shipment-empty">Couldn\'t load shipments — ' + e.message + '</div>';
+    listEl.innerHTML = '<div class="shipment-empty">' + tr('Couldn\'t load shipments — ', 'No se pudo cargar los envíos — ') + e.message + '</div>';
   }
 }
 
@@ -605,10 +850,10 @@ async function addShipment(){
     var data = await res.json();
     if(!data.ok) throw new Error(data.error || 'shipments-create reported an error');
     document.getElementById('addShipmentForm').reset();
-    showToast('Shipment added.');
+    showToast(tr('Shipment added.', 'Envío agregado.'));
     loadShipments();
   } catch(e){
-    showToast('Could not add shipment — ' + e.message);
+    showToast(tr('Could not add shipment — ', 'No se pudo agregar el envío — ') + e.message);
   }
 }
 
@@ -646,7 +891,7 @@ async function loadInventory(){
     var data = await res.json();
     if(!data.ok) throw new Error(data.error || 'erp-inventory reported an error');
 
-    document.getElementById('invProviderTag').textContent = data.provider === 'demo' ? 'Demo ERP data' : 'Live: ' + data.provider;
+    document.getElementById('invProviderTag').textContent = data.provider === 'demo' ? tr('Demo ERP data', 'Datos de ERP de muestra') : tr('Live: ', 'En vivo: ') + data.provider;
 
     var items = data.items || [];
     var belowReorder = items.filter(function(i){ return i.onHandUnits < i.reorderPoint; }).length;
@@ -655,7 +900,7 @@ async function loadInventory(){
     document.getElementById('invSummaryCount').textContent = items.length;
     document.getElementById('invSummaryBelowReorder').textContent = belowReorder;
     document.getElementById('invSummaryValue').textContent = formatLps(totalValue);
-    document.getElementById('invSummaryFetched').textContent = new Date(data.fetchedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    document.getElementById('invSummaryFetched').textContent = new Date(data.fetchedAt).toLocaleTimeString(localeStr(), { hour: 'numeric', minute: '2-digit' });
 
     if(!items.length){
       listEl.innerHTML = '<div class="shipment-empty">No inventory items returned by this connector.</div>';
@@ -666,18 +911,18 @@ async function loadInventory(){
       var belowReorder = i.onHandUnits < i.reorderPoint;
       var altTotal = (i.alternateWarehouseUnits || []).reduce(function(s, w){ return s + w.units; }, 0);
       var altText = altTotal
-        ? altTotal + ' units at ' + i.alternateWarehouseUnits.map(function(w){ return w.location; }).join(', ')
+        ? altTotal + tr(' units at ', ' unidades en ') + i.alternateWarehouseUnits.map(function(w){ return w.location; }).join(', ')
         : 'No alternate warehouse stock';
       return '<div class="inventory-row">' +
         '<div><strong>' + i.name + '</strong><div class="inventory-row-sku">' + i.sku + '</div></div>' +
-        '<div class="inventory-stat">' + (belowReorder ? '<span class="inventory-below-reorder">' + i.onHandUnits + '</span>' : i.onHandUnits) + ' <small>/ ' + i.reorderPoint + ' reorder pt</small></div>' +
-        '<div class="inventory-stat">' + (daysStock !== null ? daysStock + ' days' : '—') + '<br><small>safety stock</small></div>' +
+        '<div class="inventory-stat">' + (belowReorder ? '<span class="inventory-below-reorder">' + i.onHandUnits + '</span>' : i.onHandUnits) + ' <small>/ ' + i.reorderPoint + ' ' + tr('reorder pt', 'pto. de reorden') + '</small></div>' +
+        '<div class="inventory-stat">' + (daysStock !== null ? daysStock + ' ' + tr('days', 'días') : '—') + '<br><small>safety stock</small></div>' +
         '<div class="inventory-stat">' + formatLps(i.unitPrice) + '</div>' +
         '<div class="inventory-alt">' + altText + '</div>' +
         '</div>';
     }).join('');
   } catch(e){
-    listEl.innerHTML = '<div class="shipment-empty">Couldn\'t load inventory — ' + e.message + '</div>';
+    listEl.innerHTML = '<div class="shipment-empty">' + tr('Couldn\'t load inventory — ', 'No se pudo cargar el inventario — ') + e.message + '</div>';
   }
 }
 
@@ -710,12 +955,12 @@ function renderRisksView(){
   fetch(RISK_RECOMMENDATION_URL).then(function(res){ return res.json(); }).then(function(data){
     if(!data.ok) throw new Error(data.error || 'risk-recommendation reported an error');
     var c = data.corridor;
-    document.getElementById('risksLocationHeading').textContent = (data.locationName || 'Your region') + ' — ' + severityLabel(c.severity);
+    document.getElementById('risksLocationHeading').textContent = (data.locationName || tr('Your region', 'Tu región')) + ' — ' + severityLabel(c.severity);
 
     var days = c.weatherDays || [];
     document.getElementById('weatherDaysList').innerHTML = days.length ? days.map(function(d){
-      var label = WMO_LABELS[d.code] || ('Code ' + d.code);
-      var dateStr = new Date(d.date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      var label = tr(WMO_LABELS[d.code], T[WMO_LABELS[d.code]]) || (tr('Code ', 'Código ') + d.code);
+      var dateStr = new Date(d.date + 'T12:00:00').toLocaleDateString(localeStr(), { weekday: 'short', month: 'short', day: 'numeric' });
       return '<div class="weather-day-row' + (d.flagged ? ' flagged' : '') + '">' +
         '<div>' + dateStr + '</div>' +
         '<div>' + label + '</div>' +
@@ -723,17 +968,17 @@ function renderRisksView(){
         '<div>' + d.wind + ' km/h</div>' +
         '<div>' + (d.flagged ? '<span class="weather-day-flag">Flagged</span>' : '—') + '</div>' +
         '</div>';
-    }).join('') : '<div class="shipment-empty">' + (c.weatherError ? 'Weather feed unavailable — ' + c.weatherError : 'No forecast data.') + '</div>';
+    }).join('') : '<div class="shipment-empty">' + (c.weatherError ? tr('Weather feed unavailable — ', 'Feed de clima no disponible — ') + c.weatherError : 'No forecast data.') + '</div>';
 
     var storms = c.relevantStorms || [];
     document.getElementById('stormsList').innerHTML = storms.length ? storms.map(function(s){
       return '<div class="storm-row"><strong>' + s.name + ' <span class="sample-tag">' + (s.classification || '—') + '</span></strong>' +
-        '<p>' + Math.round(s.distanceKm).toLocaleString() + ' km away' +
-        (s.movementDir ? ' · moving ' + s.movementDir + (s.movementSpeedKt ? ' at ' + s.movementSpeedKt + ' kt' : '') : '') +
-        (s.intensityKt ? ' · ' + s.intensityKt + ' kt intensity' : '') + '</p></div>';
-    }).join('') : '<div class="shipment-empty">' + (c.stormError ? 'Storm feed unavailable — ' + c.stormError : 'No active tropical systems within ' + c.relevantRadiusKm.toLocaleString() + 'km right now.') + '</div>';
+        '<p>' + Math.round(s.distanceKm).toLocaleString() + ' ' + tr('km away', 'km de distancia') +
+        (s.movementDir ? tr(' · moving ', ' · moviéndose ') + s.movementDir + (s.movementSpeedKt ? tr(' at ', ' a ') + s.movementSpeedKt + ' kt' : '') : '') +
+        (s.intensityKt ? tr(' · ', ' · ') + s.intensityKt + tr(' kt intensity', ' kt de intensidad') : '') + '</p></div>';
+    }).join('') : '<div class="shipment-empty">' + (c.stormError ? tr('Storm feed unavailable — ', 'Feed de tormentas no disponible — ') + c.stormError : tr('No active tropical systems within ', 'Sin sistemas tropicales activos dentro de ') + c.relevantRadiusKm.toLocaleString() + tr('km right now.', 'km en este momento.')) + '</div>';
   }).catch(function(e){
-    document.getElementById('weatherDaysList').innerHTML = '<div class="shipment-empty">Couldn\'t load — ' + e.message + '</div>';
+    document.getElementById('weatherDaysList').innerHTML = '<div class="shipment-empty">' + tr('Couldn\'t load — ', 'No se pudo cargar — ') + e.message + '</div>';
     document.getElementById('stormsList').innerHTML = '';
   });
 }
@@ -772,7 +1017,7 @@ function renderIntegrationsView(){
     var isDemo = provider === 'demo';
     row.querySelector('p').textContent = isDemo
       ? 'Running in demo mode — sample inventory. Connecting your Odoo or SAP Business One is a configuration change.'
-      : 'Live: ' + provider;
+      : tr('Live: ', 'En vivo: ') + provider;
     row.querySelector('.integration-status').className = 'integration-status ' + (isDemo ? 'integration-status-demo' : 'integration-status-live');
     row.querySelector('.integration-status').textContent = isDemo ? 'Demo data' : 'Live';
   }).catch(function(){});
@@ -812,7 +1057,7 @@ function renderSettingsView(){
   }).catch(function(){});
 
   fetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
-    document.getElementById('setErpStatus').textContent = data.ok ? (data.provider === 'demo' ? 'Demo data' : 'Live: ' + data.provider) : 'Unavailable';
+    document.getElementById('setErpStatus').textContent = data.ok ? (data.provider === 'demo' ? tr('Demo data', 'Datos de muestra') : tr('Live: ', 'En vivo: ') + data.provider) : tr('Unavailable', 'No disponible');
   }).catch(function(){});
 
   document.getElementById('locationSettingsForm').addEventListener('submit', function(e){
@@ -827,9 +1072,9 @@ function renderSettingsView(){
       .then(function(res){ return res.json(); })
       .then(function(data){
         if(!data.ok) throw new Error(data.error || 'risk-location-settings reported an error');
-        showToast('Monitored location updated — takes effect on the next signal computation.');
+        showToast(tr('Monitored location updated — takes effect on the next signal computation.', 'Ubicación monitoreada actualizada — entra en vigor en el próximo cálculo de señal.'));
       })
-      .catch(function(e){ showToast('Could not save — ' + e.message); });
+      .catch(function(e){ showToast(tr('Could not save — ', 'No se pudo guardar — ') + e.message); });
   });
 }
 
@@ -855,7 +1100,7 @@ function renderAddToolsView(){
     '</div>';
 
   fetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
-    document.getElementById('addToolsCurrentProvider').textContent = data.ok ? (data.provider === 'demo' ? 'Demo data' : 'Live: ' + data.provider) : 'Unavailable';
+    document.getElementById('addToolsCurrentProvider').textContent = data.ok ? (data.provider === 'demo' ? tr('Demo data', 'Datos de muestra') : tr('Live: ', 'En vivo: ') + data.provider) : tr('Unavailable', 'No disponible');
   }).catch(function(){});
 }
 
@@ -902,28 +1147,28 @@ async function loadDecisions(){
     var s = data.summary;
     document.getElementById('decSummarySnapshots').textContent = s.totalSnapshots;
     document.getElementById('decSummaryShown').textContent = s.recommendationsShown;
-    document.getElementById('decSummaryShownNote').textContent = s.approved + ' approved · ' + s.dismissed + ' dismissed';
+    document.getElementById('decSummaryShownNote').textContent = s.approved + tr(' approved · ', ' aprobado(s) · ') + s.dismissed + tr(' dismissed', ' descartado(s)');
     document.getElementById('decSummaryRate').textContent = s.approvalRatePct === null ? '—' : s.approvalRatePct + '%';
     document.getElementById('decSummaryNoAction').textContent = s.noAction;
 
     if(!data.history.length){
-      listEl.innerHTML = '<div class="shipment-empty">No signal history yet — load the Command view a few times to build one up.</div>';
+      listEl.innerHTML = '<div class="shipment-empty">' + tr('No signal history yet — load the Command view a few times to build one up.', 'Aún no hay historial de señales — carga la vista Comando varias veces para acumular uno.') + '</div>';
       return;
     }
     listEl.innerHTML = data.history.map(function(h){
-      var timeStr = new Date(h.computedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      var timeStr = new Date(h.computedAt).toLocaleString(localeStr(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
       var detail = h.recommendationApplicable
-        ? h.skuCount + ' ' + skuWord(h.skuCount) + ' at risk · ' + formatLps(h.totalExposureLps) + ' exposure · ' + (h.roiMultiple ? h.roiMultiple + 'x ROI' : 'no transfer source')
-        : 'No recommendation — signal was calm';
+        ? h.skuCount + ' ' + skuWord(h.skuCount) + tr(' at risk · ', ' en riesgo · ') + formatLps(h.totalExposureLps) + tr(' exposure · ', ' de exposición · ') + (h.roiMultiple ? h.roiMultiple + tr('x ROI', 'x de ROI') : tr('no transfer source', 'sin fuente de transferencia'))
+        : tr('No recommendation — signal was calm', 'Sin recomendación — la señal estaba tranquila');
       return '<div class="decision-row">' +
         '<div class="decision-row-time">' + timeStr + '</div>' +
-        '<div class="decision-row-severity severity-' + h.severity + '">' + h.severity + '</div>' +
+        '<div class="decision-row-severity severity-' + h.severity + '">' + severityLabel(h.severity) + '</div>' +
         '<div class="decision-row-detail">' + detail + '</div>' +
         '<span class="decision-status decision-status-' + h.status + '">' + decisionStatusLabel(h.status) + '</span>' +
         '</div>';
     }).join('');
   } catch(e){
-    listEl.innerHTML = '<div class="shipment-empty">Couldn\'t load decision history — ' + e.message + '</div>';
+    listEl.innerHTML = '<div class="shipment-empty">' + tr('Couldn\'t load decision history — ', 'No se pudo cargar el historial de decisiones — ') + e.message + '</div>';
   }
 }
 
@@ -939,10 +1184,10 @@ async function requestTracking(shipmentId, btn){
     });
     var data = await res.json();
     if(!data.ok) throw new Error(data.error || 'request-tracking-update reported an error');
-    showToast('Tracking request sent to the driver over WhatsApp.');
+    showToast(tr('Tracking request sent to the driver over WhatsApp.', 'Solicitud de rastreo enviada al conductor por WhatsApp.'));
     loadShipments();
   } catch(e){
-    showToast('Could not send — ' + e.message);
+    showToast(tr('Could not send — ', 'No se pudo enviar — ') + e.message);
     btn.disabled = false;
     btn.textContent = originalLabel;
   }

@@ -626,6 +626,52 @@ boundary kept in place rather than built around.
   render logic, the Settings save flow, and status fetches — zero JS
   errors.
 
+## Language toggle (Spanish/English)
+
+The pilot audience is Honduran companies, so the dashboard defaults to
+Spanish with a one-click toggle to English (`localStorage.utopia_lang`,
+persisted across reloads). Hybrid approach, client-side only:
+
+- A flat exact-string dictionary (`T`, ~150+ entries) covers every static
+  label/heading/button across all 8 views. `applyI18n()` walks a subtree's
+  text nodes and swaps any exact match; a `MutationObserver` on
+  `main.main` re-runs it on every later DOM change (an async fetch
+  rendering in, a list re-rendering) so no render site needs a manual
+  translation call.
+- `tr(en, es)` covers the ~40+ dynamic/interpolated sentences the
+  dictionary can't (severity words, counts, names) — called directly at
+  each string-building site.
+- `localeStr()` (`es-HN`/`en-US`) is threaded through every
+  `toLocaleDateString`/`toLocaleTimeString`/`toLocaleString` call so
+  dates/times render in the right format, not just the right words.
+- Toggling re-renders the current view: Command resets from
+  `originalCommandHtml` (a pristine-English snapshot of `main.main`
+  captured once at load) then re-runs `renderAll()` on the cached result;
+  every sub-view (Shipments, Risks, etc.) just re-runs its own
+  `renderXView()` function, which already rebuilds fresh from English
+  literals. The sidebar resets from `originalSidebarHtml` the same way,
+  since `applyI18n` alone is additive and can't un-translate it.
+- **`#langToggleBtn` lives in the sidebar, not the topbar.** The topbar
+  (`<header class="topbar">`) is nested inside `main.main`, and every
+  sub-view's render function replaces `main.main`'s entire innerHTML —
+  so anything placed in the topbar is destroyed the moment you navigate
+  away from Command. The sidebar is `main`'s sibling and is never
+  replaced wholesale, only reset-and-rebuilt by the language toggle
+  itself, so it's the only place a persistent, always-clickable control
+  can actually live. Found by testing "toggle language while on a
+  sub-view" with Playwright and watching the button vanish from the DOM
+  after navigating to Shipments — not a hypothetical edge case, the
+  literal first thing a pilot demo would hit.
+- **Known limitation, disclosed rather than hidden**: `corridor.reasons`
+  strings generated server-side by the `risk-recommendation` Edge
+  Function stay in English regardless of the toggle. Bilingual-izing that
+  function was scoped out of this pass; a natural follow-up once needed.
+- **Verified**: headless-browser pass (mocked `risk-recommendation` /
+  `shipments-list`) toggling from every one of the 8 views, confirming
+  the button survives navigation, the sidebar and active-nav state are
+  both correct after toggling, and zero `pageerror` events — including
+  the specific "toggle while on a sub-view" case above.
+
 ## Hosting & access gate
 
 With no real pilot yet, buying a domain (part of build order step 7) is
