@@ -168,7 +168,7 @@ button:disabled{opacity:.55;cursor:default}
 </style>
 </head>
 <body class="antialiased">
-<div class="app-shell"><aside class="sidebar"><div class="brand"><span class="brand-mark">U</span><span>UTOPIA</span></div><nav class="nav" aria-label="Main navigation"><button class="nav-item active" data-view="command" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⌁</span><span>Command</span></button><button class="nav-item " data-view="risks" onclick="selectNav(this)"><span class="icon" aria-hidden="true">△</span><span>Risks</span></button><button class="nav-item " data-view="inventory" onclick="selectNav(this)"><span class="icon" aria-hidden="true">▦</span><span>Inventory</span></button><button class="nav-item " data-view="shipments" onclick="selectNav(this)"><span class="icon" aria-hidden="true">↗</span><span>Shipments</span></button><button class="nav-item " data-view="decisions" onclick="selectNav(this)"><span class="icon" aria-hidden="true">✓</span><span>Decisions</span></button></nav><div class="sidebar-bottom"><button class="nav-item add-tools-nav" data-view="add-tools" onclick="selectNav(this)"><span class="icon" aria-hidden="true">＋</span><span>Add tools</span></button><button class="nav-item " data-view="integrations" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⎋</span><span>Integrations</span></button><button class="nav-item" data-view="settings" onclick="selectNav(this)"><span class="icon" aria-hidden="true">·</span><span>Settings</span></button><button class="lang-toggle" id="langToggleBtn" onclick="toggleLang()" aria-label="Toggle language">ES</button><div class="profile"><span class="avatar">AV</span><span><strong>Ana Valle</strong><small>Procurement lead</small></span></div></div></aside><main class="main"><header class="topbar"><div><p class="eyebrow" id="todayLabel">…</p><h1>Good morning, Ana.</h1></div><div class="top-actions"><button class="sync" id="erpSyncButton" onclick="showToast('This demo runs on sample inventory data. Connecting your ERP — Excel, Odoo, or SAP Business One — is a configuration step, not new engineering.')"><span class="pulse" id="erpSyncPulse" style="background:#c9d0d3;box-shadow:0 0 0 3px #eef1f2"></span>ERP: not connected <small>Sample data</small></button><button class="icon-button" aria-label="Notifications" onclick="showNotificationSummary()">♢<span class="notification-dot"></span></button></div></header><div class="mode-banner mode-banner-demo" id="modeBanner">
+<div class="app-shell"><aside class="sidebar"><div class="brand"><span class="brand-mark">U</span><span>UTOPIA</span></div><nav class="nav" aria-label="Main navigation"><button class="nav-item active" data-view="command" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⌁</span><span>Command</span></button><button class="nav-item " data-view="risks" onclick="selectNav(this)"><span class="icon" aria-hidden="true">△</span><span>Risks</span></button><button class="nav-item " data-view="inventory" onclick="selectNav(this)"><span class="icon" aria-hidden="true">▦</span><span>Inventory</span></button><button class="nav-item " data-view="shipments" onclick="selectNav(this)"><span class="icon" aria-hidden="true">↗</span><span>Shipments</span></button><button class="nav-item " data-view="decisions" onclick="selectNav(this)"><span class="icon" aria-hidden="true">✓</span><span>Decisions</span></button></nav><div class="sidebar-bottom"><button class="nav-item add-tools-nav" data-view="add-tools" onclick="selectNav(this)"><span class="icon" aria-hidden="true">＋</span><span>Add tools</span></button><button class="nav-item " data-view="integrations" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⎋</span><span>Integrations</span></button><button class="nav-item" data-view="settings" onclick="selectNav(this)"><span class="icon" aria-hidden="true">·</span><span>Settings</span></button><button class="lang-toggle" id="langToggleBtn" onclick="toggleLang()" aria-label="Toggle language">ES</button><div class="profile"><span class="avatar">AV</span><span><strong>Ana Valle</strong><small>Procurement lead</small></span></div></div></aside><main class="main"><header class="topbar"><div><p class="eyebrow" id="todayLabel">…</p><h1>Good morning, Ana.</h1></div><div class="top-actions"><button class="sync" id="erpSyncButton" onclick="selectNav(document.querySelector('.nav-item[data-view=\'add-tools\']'))"><span class="pulse" id="erpSyncPulse" style="background:#c9d0d3;box-shadow:0 0 0 3px #eef1f2"></span>ERP: not connected <small>Sample data</small></button><button class="icon-button" aria-label="Notifications" onclick="showNotificationSummary()">♢<span class="notification-dot"></span></button></div></header><div class="mode-banner mode-banner-demo" id="modeBanner">
   <div class="mode-banner-text">
     <span class="mode-banner-tag" id="modeBannerTag">SCORING ENGINE: LIVE</span>
     <span id="modeBannerCopy">— the risk-brief card, Signal Watch, metrics, and Decision Queue below are all computed from real Open-Meteo + NOAA/NHC data combined with real math. The underlying SKU inventory numbers shown here are sample data — connecting your own ERP is a configuration step away.</span>
@@ -337,8 +337,10 @@ var T = {
   'Unavailable': 'No disponible',
   // Add tools
   'Connect your ERP': 'Conecta tu ERP',
-  'Two real adapters exist today, both written against documented, stable APIs. Onboarding is a config change your Utopia contact makes with you — not a self-service credential form, since ERP passwords are never handled client-side.':
-    'Hoy existen dos adaptadores reales, ambos escritos contra APIs documentadas y estables. La incorporación es un cambio de configuración que tu contacto de Utopia hace contigo — no un formulario de autoservicio, ya que las contraseñas del ERP nunca se manejan del lado del cliente.',
+  'Three real ways to connect inventory data. Excel/OneDrive below is self-service — a real Microsoft sign-in, no credential form. Odoo and SAP Business One are real adapters too, but onboarding those is a config change your Utopia contact makes with you, since ERP passwords are never handled client-side.':
+    'Tres formas reales de conectar datos de inventario. Excel/OneDrive abajo es de autoservicio — un inicio de sesión real de Microsoft, sin formulario de credenciales. Odoo y SAP Business One también son adaptadores reales, pero su incorporación es un cambio de configuración que tu contacto de Utopia hace contigo, ya que las contraseñas del ERP nunca se manejan del lado del cliente.',
+  "Reads a named Table from a OneDrive workbook after a real Microsoft sign-in — no password ever touches this dashboard, only Microsoft's own login page.":
+    'Lee una Tabla con nombre de un libro de OneDrive después de un inicio de sesión real de Microsoft — ningún password toca este panel, solo la propia página de inicio de sesión de Microsoft.',
   'Currently running': 'Actualmente en ejecución',
   'The Inventory and Decisions views are computed from whichever provider is configured — right now, sample data until a real ERP is connected.':
     'Las vistas de Inventario y Decisiones se calculan según el proveedor configurado — por ahora, datos de muestra hasta conectar un ERP real.',
@@ -650,8 +652,24 @@ document.addEventListener('DOMContentLoaded', function(){
     new Date().toLocaleDateString(localeStr(), { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
   loadRiskRecommendation().finally(function(){
     mainContent = document.querySelector('main.main').innerHTML; // cache the Command view AFTER live data renders (and after translation)
+    handleExcelRedirect(); // only after mainContent is cached, so navigating away here can't corrupt "Back to Command"
   });
 });
+
+// Handles the redirect back from excel-oauth-callback (?excel=connected /
+// ?excel=error&excel_msg=...). Never carries a token — just a status flag.
+function handleExcelRedirect(){
+  var params = new URLSearchParams(window.location.search);
+  var excelParam = params.get('excel');
+  if(!excelParam) return;
+  if(excelParam === 'connected'){
+    showToast(tr('Excel connected — inventory now reads live from your OneDrive workbook.', 'Excel conectado — el inventario ahora se lee en vivo desde tu libro de OneDrive.'));
+    selectNav(document.querySelector('.nav-item[data-view="add-tools"]'));
+  } else if(excelParam === 'error'){
+    showToast(tr('Excel connection failed — ', 'Falló la conexión con Excel — ') + (params.get('excel_msg') || ''));
+  }
+  history.replaceState({}, '', window.location.pathname);
+}
 
 function toggleWhy(){
   var detail = document.getElementById('whyDetail');
@@ -989,6 +1007,17 @@ function renderRisksView(){
 // dropped, since only Odoo and SAP Business One are real adapters).
 var RISK_LOCATION_SETTINGS_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/risk-location-settings";
 
+// Excel/OneDrive ERP connector — real Microsoft OAuth. excel-oauth-start
+// does the redirect to Microsoft's login; excel-oauth-callback exchanges
+// the code server-side and never sends a token back to the browser;
+// excel-status is a read-only status check (connected + which account).
+var EXCEL_OAUTH_START_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/excel-oauth-start";
+var EXCEL_STATUS_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/excel-status";
+
+function connectExcel(){
+  window.location.href = EXCEL_OAUTH_START_URL;
+}
+
 function renderIntegrationsView(){
   var main = document.querySelector('main.main');
   main.innerHTML =
@@ -1004,6 +1033,7 @@ function renderIntegrationsView(){
     { name: 'NOAA/NHC', desc: 'Active tropical storm tracking, relayed via storm-signal', status: 'live' },
     { name: 'WhatsApp Cloud API', desc: 'Two-way — proactive send (approved template) and inbound driver replies, both proven', status: 'live' },
     { name: 'ERP connector', desc: 'Loading current provider…', status: 'loading', id: 'erpIntegrationRow' },
+    { name: 'Microsoft Excel / OneDrive', desc: 'Loading…', status: 'loading', id: 'excelIntegrationRow' },
   ];
   document.getElementById('integrationsList').innerHTML = rows.map(function(r){
     return '<div class="integration-row"' + (r.id ? ' id="' + r.id + '"' : '') + '><div><strong>' + r.name + '</strong><p>' + r.desc + '</p></div>' +
@@ -1020,6 +1050,17 @@ function renderIntegrationsView(){
       : tr('Live: ', 'En vivo: ') + provider;
     row.querySelector('.integration-status').className = 'integration-status ' + (isDemo ? 'integration-status-demo' : 'integration-status-live');
     row.querySelector('.integration-status').textContent = isDemo ? 'Demo data' : 'Live';
+  }).catch(function(){});
+
+  fetch(EXCEL_STATUS_URL).then(function(res){ return res.json(); }).then(function(data){
+    var row = document.getElementById('excelIntegrationRow');
+    if(!row) return;
+    var connected = data.ok && data.connected;
+    row.querySelector('p').textContent = connected
+      ? tr('Connected — real OAuth login, reading a OneDrive workbook via Microsoft Graph.', 'Conectado — inicio de sesión OAuth real, leyendo un libro de OneDrive vía Microsoft Graph.')
+      : tr('Not connected — click "Connect with Microsoft" in Add tools.', 'No conectado — haz clic en "Conectar con Microsoft" en Agregar herramientas.');
+    row.querySelector('.integration-status').className = 'integration-status ' + (connected ? 'integration-status-live' : 'integration-status-demo');
+    row.querySelector('.integration-status').textContent = connected ? tr('Live', 'En vivo') : tr('Not connected', 'No conectado');
   }).catch(function(){});
 }
 
@@ -1087,8 +1128,11 @@ function renderAddToolsView(){
   main.innerHTML =
     '<div class="view-stack">' +
     '<div class="view-intro"><div><p class="eyebrow">ADD TOOLS</p><h2>Connect your ERP</h2>' +
-    '<p>Two real adapters exist today, both written against documented, stable APIs. Onboarding is a config change your Utopia contact makes with you — not a self-service credential form, since ERP passwords are never handled client-side.</p></div></div>' +
+    '<p>Three real ways to connect inventory data. Excel/OneDrive below is self-service — a real Microsoft sign-in, no credential form. Odoo and SAP Business One are real adapters too, but onboarding those is a config change your Utopia contact makes with you, since ERP passwords are never handled client-side.</p></div></div>' +
     '<section class="panel">' +
+    '<div class="tool-card-real" id="excelToolCard"><h4>Microsoft Excel / OneDrive <span class="sample-tag">Microsoft Graph</span></h4>' +
+    '<p>Reads a named Table from a OneDrive workbook after a real Microsoft sign-in — no password ever touches this dashboard, only Microsoft\'s own login page.</p>' +
+    '<div id="excelToolAction">Loading…</div></div>' +
     '<div class="tool-card-real"><h4>Odoo <span class="sample-tag">JSON-RPC</span></h4>' +
     '<p>Authenticates via <code>common.authenticate</code>, reads <code>product.product</code> for on-hand levels, and <code>sale.order.line</code> for trailing-30-day sales velocity.</p></div>' +
     '<div class="tool-card-real"><h4>SAP Business One <span class="sample-tag">Service Layer REST</span></h4>' +
@@ -1102,6 +1146,19 @@ function renderAddToolsView(){
   fetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
     document.getElementById('addToolsCurrentProvider').textContent = data.ok ? (data.provider === 'demo' ? tr('Demo data', 'Datos de muestra') : tr('Live: ', 'En vivo: ') + data.provider) : tr('Unavailable', 'No disponible');
   }).catch(function(){});
+
+  fetch(EXCEL_STATUS_URL).then(function(res){ return res.json(); }).then(function(data){
+    var action = document.getElementById('excelToolAction');
+    if(!action) return;
+    if(data.ok && data.connected){
+      action.innerHTML = '<span class="integration-status integration-status-live">' + tr('Connected', 'Conectado') + '</span> ' + tr('as ', 'como ') + (data.email || '');
+    } else {
+      action.innerHTML = '<button class="primary-button" onclick="connectExcel()">' + tr('Connect with Microsoft', 'Conectar con Microsoft') + '</button>';
+    }
+  }).catch(function(){
+    var action = document.getElementById('excelToolAction');
+    if(action) action.textContent = tr('Status unavailable', 'Estado no disponible');
+  });
 }
 
 // Decisions history view — surfaces risk_snapshots + recommendation_events

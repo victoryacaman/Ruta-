@@ -222,13 +222,16 @@ later is a config change, not new code.
 - **`erp_config` table** (Supabase project `RUTA`, same project as
   `storm-signal`) — RLS enabled, no policies (service_role only, same
   locked-down pattern as `gmail_oauth`/`oracle_config`). One row:
-  `provider` (`demo`|`odoo`|`sap_b1`), `base_url`, `database_name` (Odoo),
-  `company_db` (SAP B1), `username`, `password`, `sku_shortlist`. Currently
-  seeded `provider='demo'`. Onboarding a real pilot is one `UPDATE` to this
-  row, not a redeploy.
+  `provider` (`demo`|`odoo`|`sap_b1`|`excel`), `base_url`, `database_name`
+  (Odoo), `company_db` (SAP B1), `username`, `password`, `sku_shortlist`,
+  `excel_workbook_path` (default `/Utopia-Inventory.xlsx`),
+  `excel_table_name` (default `InventoryTable`). Currently seeded
+  `provider='demo'`. Onboarding Odoo/SAP B1 is one `UPDATE` to this row,
+  not a redeploy; onboarding Excel is the real "Connect with Microsoft"
+  button — see the dedicated section below.
 - **`erp-inventory` Edge Function** — read-only, unauthenticated by design
   (no write capability exists in the function at all). Reads the config
-  row, dispatches to one of three adapters, returns only
+  row, dispatches to one of four adapters, returns only
   `{ok, provider, fetchedAt, items[]}` — never credentials.
   - **Demo adapter** (fully real, fully tested): three fixed mock SKUs
     (`AUT-2201` 12V LED headlight kit, `AUT-3387` ceramic brake pads,
@@ -244,6 +247,11 @@ later is a config change, not new code.
     session cookie, `GET /b1s/v1/Items` filtered by `ItemCode`, expanding
     `ItemWarehouseInfoCollection` for multi-warehouse units). Written
     against the documented Service Layer OData shape.
+  - **Excel adapter** — real Microsoft Graph read of a named Table in a
+    OneDrive workbook, refreshing the OAuth access token first if it's
+    near/past expiry. This is the one self-service adapter — no
+    credentials to write anywhere, just a real Microsoft sign-in. Full
+    detail in the dedicated section below.
   - **Honest caveat:** the demo adapter is proven — called directly and
     verified end-to-end. The Odoo and SAP B1 adapters are **not** —
     there's no live pilot ERP to test against yet, so their correctness
@@ -267,6 +275,83 @@ later is a config change, not new code.
   see it working at all. Verified headless with mocked data (math checks
   out: 96×249 + 400×1450 = 603,904) and confirmed live against the real
   deployed `erp-inventory` endpoint.
+
+## Excel / OneDrive connector (Microsoft OAuth, live)
+
+The dashboard's "ERP: not connected" topbar button and its Excel copy
+used to be pure promise — clicking it only opened a toast, and no adapter
+existed. It's now real: a genuine Microsoft sign-in, no password ever
+touching this dashboard, wired to the same `erp_config`/`erp-inventory`
+plumbing as Odoo/SAP B1.
+
+- **Azure app registration** — a real app registration in Microsoft Entra
+  ID/Azure Portal, created by the user (no tool here can create one).
+  Supported account types: "Accounts in any organizational directory and
+  personal Microsoft accounts" — matches the `/common` OAuth endpoint, so
+  both personal Microsoft accounts (OneDrive personal) and work/school
+  Microsoft 365 accounts can sign in through the same app. Redirect URI:
+  `https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/excel-oauth-callback`.
+  Delegated Graph permissions: `Files.Read`, `offline_access`,
+  `User.Read`.
+- **`excel_oauth` table** — RLS enabled, no policies (service_role only,
+  same lockdown pattern as `erp_config`/`whatsapp_config`). One row:
+  `client_id`, `client_secret` (the Azure app's own credentials — set once
+  by a Utopia contact, never through a client form), `access_token`,
+  `refresh_token`, `token_expires_at`, `connected_account_email`
+  (informational only, shown as "Connected as ...").
+- **Three Edge Functions**, all unauthenticated by design (same reasoning
+  as every other read/redirect path in this project):
+  - **`excel-oauth-start`** — reads `client_id`, builds the Microsoft
+    `/common/oauth2/v2.0/authorize` URL, 302-redirects the browser
+    straight to Microsoft's own login page. `client_id` never appears in
+    the dashboard's own source.
+  - **`excel-oauth-callback`** — exchanges the returned code for tokens
+    server-side, calls Graph `/me` for the connected account's email,
+    stores everything in `excel_oauth`, and sets `erp_config.provider =
+    'excel'` — connecting makes Excel the live source immediately, which
+    is the actual point of a self-service "Connect" button. Redirects
+    back to the dashboard with `?excel=connected` or
+    `?excel=error&excel_msg=...` — a status flag only, never a token.
+  - **`excel-status`** — read-only `{ok, connected, email}`, backs the
+    Add tools card and Integrations row. Never returns tokens.
+  - **Known simplification, disclosed rather than hidden:** the OAuth
+    `state` parameter is generated and passed through as a basic
+    round-trip sanity check, not stored and compared server-side for real
+    CSRF protection. This is a single-tenant pilot tool with no
+    session/login system yet (build order step 7, below, is still open),
+    so there's no per-visitor state to check it against — a real
+    multi-tenant deployment would need that piece built first.
+- **`erp-inventory`'s Excel adapter** — reads `excel_oauth`, refreshes the
+  access token via the stored refresh token when it's within 5 minutes of
+  (or past) expiry, then calls Microsoft Graph's named-Table-rows
+  endpoint (`GET /v1.0/me/drive/root:{excel_workbook_path}:/workbook/tables('{excel_table_name}')/rows`)
+  and maps each row into the same `SkuInventory` shape every other
+  adapter returns.
+- **Workbook template** — the user creates a OneDrive Excel file matching
+  this exact layout (no existing workbook to map to, so this is the
+  agreed-on contract): one worksheet, header row, data formatted as a
+  **named Table** (Insert → Table / Ctrl+T, then rename via the Table
+  Design tab) called `InventoryTable`. Columns, in order: `SKU | Name |
+  OnHandUnits | ReorderPoint | AvgDailyUnitsSold | UnitCost | UnitPrice |
+  AltWarehouseLocation | AltWarehouseUnits`. A SKU with more than one
+  alternate-warehouse location gets one extra row per location, same SKU
+  repeated — the adapter groups rows by SKU.
+- **Dashboard wiring**: the topbar's "ERP: not connected" button now
+  navigates to Add tools instead of showing a toast. Add tools gained a
+  real "Microsoft Excel / OneDrive" card — "Connect with Microsoft" when
+  not connected, "Connected as {email}" when it is. Integrations gained a
+  matching live-status row. Landing back from Microsoft with
+  `?excel=connected` shows a toast and jumps straight to Add tools so the
+  new connection is visible immediately; `?excel=error` shows the error
+  and stays put.
+- **Verified**: `excel-oauth-start` and `excel-status` confirmed live via
+  curl (honest "not configured yet" responses before Azure credentials
+  are stored); headless-browser pass across both connected/not-connected
+  states for the Add tools card, Integrations row, and both redirect
+  outcomes, zero JS errors. The real end-to-end Microsoft sign-in
+  (clicking Connect, logging in, landing back connected, `erp-inventory`
+  returning real workbook rows) is verified once the user finishes Azure
+  setup and creates the `InventoryTable` workbook — see chat for status.
 
 ## Scoring engine (step 4)
 
@@ -614,12 +699,15 @@ boundary kept in place rather than built around.
   status read-only — actual ERP/WhatsApp credentials are configured
   directly with a Utopia contact, never through a client-side form. This
   was a deliberate security call, not an oversight.
-- **Add tools** — an honest ERP-onboarding page describing the two
-  adapters that actually exist (Odoo's JSON-RPC, SAP Business One's
-  Service Layer REST — same detail as documented in "ERP connector"
-  above), plus the current live provider. No self-service credential
-  form, same reasoning as Settings above — onboarding a real ERP is a
-  config change made with a Utopia contact, not a public form.
+- **Add tools** — an honest ERP-onboarding page describing all three real
+  adapters (Odoo's JSON-RPC, SAP Business One's Service Layer REST, and
+  Excel/OneDrive via Microsoft Graph — see "ERP connector" and "Excel /
+  OneDrive connector" above), plus the current live provider. Excel is
+  the one genuine exception to "no self-service credential form": its
+  card has a real "Connect with Microsoft" button, because it never
+  collects a credential at all — only a redirect to Microsoft's own login
+  page. Odoo/SAP B1 still have no form, same reasoning as Settings above
+  — onboarding those is a config change made with a Utopia contact.
 - **Verified**: real end-to-end round-trip on `risk-location-settings`
   (POST then GET confirms the write persisted) via curl, and a
   headless-browser pass across all three views (mocked data) confirming
