@@ -382,6 +382,55 @@ plumbing as Odoo/SAP B1.
   manually**: Supabase dashboard → Project → Edge Functions →
   `excel-debug`.
 
+### Workbook/table picker — no more hand-set config
+
+The `itemNotFound` above was found by an engineer running a diagnostic;
+a real pilot's manager, connecting without one in the loop, would have
+just seen "connected" with no way to see or fix the mismatch. Add tools
+now has a real in-app picker instead of a hand-set config value:
+
+- **`excel-browse`** (GET, unauthenticated — read-only, uses only the
+  server-side stored token, same reasoning as `excel-status`) —
+  `?mode=files` lists `.xlsx`/`.xls` files via `GET
+  /me/drive/root/children`, **not** Graph's search endpoint: search has
+  real indexing lag on a freshly-created/renamed file (confirmed
+  empirically getting `excel-debug` working — a `q='Utopia'` search
+  returned nothing for a file whose name literally contained "Utopia"),
+  which would show a first-time user an empty "no files found" on their
+  very first attempt. **Root-level only** — a real, disclosed scope
+  limit; a workbook inside a OneDrive folder won't show up yet.
+  `?mode=tables&fileId=...` lists the named Tables on one workbook.
+- **`excel-select-workbook`** (POST, unauthenticated — same reasoning
+  as `risk-location-settings`: no secrets in what it writes, so the
+  worst case is someone pointing the connector at a different file
+  already inside the same authorized account, not a credential leak) —
+  re-verifies the chosen table still exists via Graph before saving
+  (catches a stale picker selection), then updates `erp_config`.
+- **`erp_config` gained `excel_workbook_id`** — the picker addresses the
+  workbook by its stable Graph drive-item id, not by display name/path.
+  This is the actual root-cause fix for the `itemNotFound` class of bug:
+  an id survives a rename or a double-appended extension, a path string
+  doesn't. `erp-inventory`'s Excel adapter prefers `excel_workbook_id`
+  when set, falling back to the old path-based `root:{path}:` addressing
+  only for a config set before the picker existed.
+- **Add tools UI**: the connected-state Excel card now has a "Choose or
+  change workbook" button. Clicking it fetches the file list, picking a
+  file fetches that file's tables, picking a table and clicking "Use
+  this workbook" saves it — three plain `<select>`-driven steps, no
+  external picker SDK (this dashboard has zero external JS dependencies
+  and that stays true). Empty file/table lists show an honest guidance
+  message rather than a silent dead end; a failed save leaves the picker
+  open so the user can just pick again instead of restarting the flow.
+- **Verified**: `excel-browse` (`mode=files` and `mode=tables`) and
+  `excel-select-workbook` (both a real save and a rejected stale-table
+  save) called directly via curl against the real connected account —
+  confirmed listing the real `Utopia-Inventory.xlsx.xlsx` file and its
+  real `Table2` table, confirmed the save round-trips into
+  `erp-inventory` returning `{ok:true, provider:"excel"}` via both the
+  new id-based and the old path-based addressing. Headless-browser pass
+  covering the happy path, empty-files, empty-tables, and failed-save
+  states, zero JS errors.
+
 ## Scoring engine (step 4)
 
 Build order step 4 is done: a single Edge Function, **`risk-recommendation`**

@@ -1022,12 +1022,84 @@ var RISK_LOCATION_SETTINGS_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/funct
 // Excel/OneDrive ERP connector — real Microsoft OAuth. excel-oauth-start
 // does the redirect to Microsoft's login; excel-oauth-callback exchanges
 // the code server-side and never sends a token back to the browser;
-// excel-status is a read-only status check (connected + which account).
+// excel-status is a read-only status check (connected + which account);
+// excel-browse/excel-select-workbook back the workbook/table picker below,
+// so a manager never has to know what a "path" or "table name" even is.
 var EXCEL_OAUTH_START_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/excel-oauth-start";
 var EXCEL_STATUS_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/excel-status";
+var EXCEL_BROWSE_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/excel-browse";
+var EXCEL_SELECT_WORKBOOK_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/excel-select-workbook";
+var pickedExcelFileId = null; // set once a file is chosen in the picker, read by saveExcelWorkbook()
+var pickedExcelFileName = null;
 
 function connectExcel(){
   window.location.href = EXCEL_OAUTH_START_URL;
+}
+
+function startExcelPicker(){
+  var area = document.getElementById('excelPickerArea');
+  if(!area) return;
+  area.innerHTML = '<p class="settings-status-item">' + tr('Loading your OneDrive files…', 'Cargando tus archivos de OneDrive…') + '</p>';
+  fetch(EXCEL_BROWSE_URL + '?mode=files').then(function(res){ return res.json(); }).then(function(data){
+    if(!data.ok) throw new Error(data.error || 'excel-browse failed');
+    if(!data.files || data.files.length === 0){
+      area.innerHTML = '<p class="settings-status-item">' + tr('No Excel files found in your OneDrive root. Make sure your workbook is saved directly in "My files", not inside a folder.', 'No se encontraron archivos de Excel en la raíz de tu OneDrive. Asegúrate de que tu libro esté guardado directamente en "Mis archivos", no dentro de una carpeta.') + '</p>';
+      return;
+    }
+    var options = data.files.map(function(f){ return '<option value="' + f.id + '" data-name="' + f.name + '">' + f.name + '</option>'; }).join('');
+    area.innerHTML =
+      '<div class="settings-field"><label>' + tr('Workbook', 'Libro') + '</label>' +
+      '<select id="excelFilePicker"><option value="">' + tr('Select a file…', 'Selecciona un archivo…') + '</option>' + options + '</select></div>' +
+      '<div id="excelTablePickerArea"></div>';
+    document.getElementById('excelFilePicker').addEventListener('change', onExcelFileChosen);
+  }).catch(function(e){
+    area.innerHTML = '<p class="settings-status-item">' + tr('Could not load your files — ', 'No se pudieron cargar tus archivos — ') + e.message + '</p>';
+  });
+}
+
+function onExcelFileChosen(){
+  var select = document.getElementById('excelFilePicker');
+  var tableArea = document.getElementById('excelTablePickerArea');
+  var fileId = select.value;
+  if(!fileId){ tableArea.innerHTML = ''; return; }
+  pickedExcelFileId = fileId;
+  pickedExcelFileName = select.options[select.selectedIndex].getAttribute('data-name');
+  tableArea.innerHTML = '<p class="settings-status-item">' + tr('Loading tables…', 'Cargando tablas…') + '</p>';
+  fetch(EXCEL_BROWSE_URL + '?mode=tables&fileId=' + encodeURIComponent(fileId)).then(function(res){ return res.json(); }).then(function(data){
+    if(!data.ok) throw new Error(data.error || 'excel-browse failed');
+    if(!data.tables || data.tables.length === 0){
+      tableArea.innerHTML = '<p class="settings-status-item">' + tr('No tables found in this workbook — format your data as a Table in Excel first (Insert → Table).', 'No se encontraron tablas en este libro — da formato a tus datos como Tabla en Excel primero (Insertar → Tabla).') + '</p>';
+      return;
+    }
+    var options = data.tables.map(function(t){ return '<option value="' + t.name + '">' + t.name + '</option>'; }).join('');
+    tableArea.innerHTML =
+      '<div class="settings-field"><label>' + tr('Table', 'Tabla') + '</label>' +
+      '<select id="excelTablePicker"><option value="">' + tr('Select a table…', 'Selecciona una tabla…') + '</option>' + options + '</select></div>' +
+      '<button class="primary-button" onclick="saveExcelWorkbook()">' + tr('Use this workbook', 'Usar este libro') + '</button>';
+  }).catch(function(e){
+    tableArea.innerHTML = '<p class="settings-status-item">' + tr('Could not load tables — ', 'No se pudieron cargar las tablas — ') + e.message + '</p>';
+  });
+}
+
+function saveExcelWorkbook(){
+  var tableSelect = document.getElementById('excelTablePicker');
+  var tableName = tableSelect ? tableSelect.value : '';
+  if(!tableName){ showToast(tr('Choose a table first.', 'Elige una tabla primero.')); return; }
+  fetch(EXCEL_SELECT_WORKBOOK_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileId: pickedExcelFileId, fileName: pickedExcelFileName, tableName: tableName }),
+  }).then(function(res){ return res.json(); }).then(function(data){
+    if(!data.ok) throw new Error(data.error || 'excel-select-workbook failed');
+    showToast(tr('Workbook connected — Inventory will now read from it.', 'Libro conectado — Inventario ahora leerá de él.'));
+    var area = document.getElementById('excelPickerArea');
+    if(area) area.innerHTML = '';
+    fetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data2){
+      var tag = document.getElementById('addToolsCurrentProvider');
+      if(tag) tag.textContent = data2.ok ? (data2.provider === 'demo' ? tr('Demo data', 'Datos de muestra') : tr('Live: ', 'En vivo: ') + data2.provider) : tr('Unavailable', 'No disponible');
+    }).catch(function(){});
+  }).catch(function(e){
+    showToast(tr('Could not save — ', 'No se pudo guardar — ') + e.message);
+  });
 }
 
 function renderIntegrationsView(){
@@ -1144,7 +1216,8 @@ function renderAddToolsView(){
     '<section class="panel">' +
     '<div class="tool-card-real" id="excelToolCard"><h4>Microsoft Excel / OneDrive <span class="sample-tag">Microsoft Graph</span></h4>' +
     '<p>Reads a named Table from a OneDrive workbook after a real Microsoft sign-in — no password ever touches this dashboard, only Microsoft\'s own login page.</p>' +
-    '<div id="excelToolAction">Loading…</div></div>' +
+    '<div id="excelToolAction">Loading…</div>' +
+    '<div id="excelPickerArea"></div></div>' +
     '<div class="tool-card-real"><h4>Odoo <span class="sample-tag">JSON-RPC</span></h4>' +
     '<p>Authenticates via <code>common.authenticate</code>, reads <code>product.product</code> for on-hand levels, and <code>sale.order.line</code> for trailing-30-day sales velocity.</p></div>' +
     '<div class="tool-card-real"><h4>SAP Business One <span class="sample-tag">Service Layer REST</span></h4>' +
@@ -1163,7 +1236,8 @@ function renderAddToolsView(){
     var action = document.getElementById('excelToolAction');
     if(!action) return;
     if(data.ok && data.connected){
-      action.innerHTML = '<span class="integration-status integration-status-live">' + tr('Connected', 'Conectado') + '</span> ' + tr('as ', 'como ') + (data.email || '');
+      action.innerHTML = '<span class="integration-status integration-status-live">' + tr('Connected', 'Conectado') + '</span> ' + tr('as ', 'como ') + (data.email || '') +
+        ' <button class="text-button" onclick="startExcelPicker()">' + tr('Choose or change workbook', 'Elegir o cambiar libro') + '</button>';
     } else {
       action.innerHTML = '<button class="primary-button" onclick="connectExcel()">' + tr('Connect with Microsoft', 'Conectar con Microsoft') + '</button>';
     }
