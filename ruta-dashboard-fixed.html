@@ -187,7 +187,7 @@ button:disabled{opacity:.55;cursor:default}
   <button class="undo-button" onclick="undoDismiss()">&#8630; Undo</button>
 </div><div class="decision-card decision-card-dismissed" id="decisionEmptyState" hidden>
   <p id="decisionEmptyText">No urgent inventory actions right now.</p>
-</div></section><section class="panel watch-panel"><div class="panel-head"><div><p class="eyebrow">SIGNAL WATCH</p><h3>Operational inputs</h3></div><span class="live"><i></i> CONNECTABLE</span></div><div class="signal-list"><div class="signal"><span class="signal-icon weather">⌁</span><div><strong id="weatherLocationLabel">Weather</strong><p id="weatherSummary">Fetching Open-Meteo 7-day outlook…</p></div><span class="signal-time" id="weatherTime">LIVE</span></div><div class="signal"><span class="signal-icon port">◎</span><div><strong>Tropical systems</strong><p id="stormSummary">Fetching NOAA/NHC active-storm feed…</p></div><span class="signal-time" id="stormTime">LIVE</span></div><div class="signal"><span class="signal-icon ship">↗</span><div><strong>Carrier milestones</strong><p>Connect with company credentials</p></div><span class="signal-time">READY</span></div><div class="signal"><span class="signal-icon road">X</span><div><strong>Excel / ERP context</strong><p>Maps signals to actual inventory exposure</p></div><span class="signal-time">READ</span></div></div><button class="full-button" onclick="showToast('Signal Watch here already reflects the live feeds in real time. A dedicated signal center is part of the complete build.')">Open signal center</button></section></div></main></div><div class="toast" id="toast"></div>
+</div></section><section class="panel watch-panel"><div class="panel-head"><div><p class="eyebrow">SIGNAL WATCH</p><h3>Operational inputs</h3></div><span class="live"><i></i> CONNECTABLE</span></div><div class="signal-list"><div class="signal"><span class="signal-icon weather">⌁</span><div><strong id="weatherLocationLabel">Weather</strong><p id="weatherSummary">Fetching Open-Meteo 7-day outlook…</p></div><span class="signal-time" id="weatherTime">LIVE</span></div><div class="signal"><span class="signal-icon port">◎</span><div><strong>Tropical systems</strong><p id="stormSummary">Fetching NOAA/NHC active-storm feed…</p></div><span class="signal-time" id="stormTime">LIVE</span></div><div class="signal"><span class="signal-icon ship">↗</span><div><strong>Carrier milestones</strong><p>Connect with company credentials</p></div><span class="signal-time">READY</span></div><div class="signal" id="excelSignalRow" onclick="selectNav(document.querySelector('.nav-item[data-view=\'add-tools\']'))" style="cursor:pointer"><span class="signal-icon road">X</span><div><strong>Excel / ERP context</strong><p id="excelSignalDesc">Maps signals to actual inventory exposure</p></div><span class="signal-time" id="excelSignalStatus">READ</span></div></div><button class="full-button" onclick="showToast('Signal Watch here already reflects the live feeds in real time. A dedicated signal center is part of the complete build.')">Open signal center</button></section></div></main></div><div class="toast" id="toast"></div>
 
 <script>
 // TODO: replace with the real recipient's WhatsApp number, digits only, country code first (Honduras = 504)
@@ -543,8 +543,20 @@ function renderMetrics(corridor, rec){
 function renderDecisionQueue(corridor, rec, erpProvider){
   var tag = document.getElementById('erpDataTag');
   tag.textContent = erpProvider === 'demo' ? tr('Demo ERP data', 'Datos de ERP de muestra')
-    : (erpProvider === 'odoo' || erpProvider === 'sap_b1') ? tr('Live: ', 'En vivo: ') + erpProvider
+    : (erpProvider === 'odoo' || erpProvider === 'sap_b1' || erpProvider === 'excel') ? tr('Live: ', 'En vivo: ') + erpProvider
     : tr('ERP data unavailable', 'Datos de ERP no disponibles');
+
+  var excelDesc = document.getElementById('excelSignalDesc');
+  var excelStatus = document.getElementById('excelSignalStatus');
+  if(excelDesc && excelStatus){
+    if(erpProvider === 'odoo' || erpProvider === 'sap_b1' || erpProvider === 'excel'){
+      excelDesc.textContent = tr('Live — reading ', 'En vivo — leyendo ') + erpProvider + tr(' inventory data. Tap to manage.', '. Toca para administrar.');
+      excelStatus.textContent = tr('LIVE', 'EN VIVO');
+    } else {
+      excelDesc.textContent = tr('Maps signals to actual inventory exposure', 'Vincula señales con la exposición real del inventario');
+      excelStatus.textContent = tr('READ', 'LECTURA');
+    }
+  }
 
   var card = document.getElementById('decisionCard');
   var empty = document.getElementById('decisionEmptyState');
