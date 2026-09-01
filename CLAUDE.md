@@ -331,11 +331,15 @@ plumbing as Odoo/SAP B1.
   this exact layout (no existing workbook to map to, so this is the
   agreed-on contract): one worksheet, header row, data formatted as a
   **named Table** (Insert → Table / Ctrl+T, then rename via the Table
-  Design tab) called `InventoryTable`. Columns, in order: `SKU | Name |
-  OnHandUnits | ReorderPoint | AvgDailyUnitsSold | UnitCost | UnitPrice |
+  Design tab). Columns, in order: `SKU | Name | OnHandUnits |
+  ReorderPoint | AvgDailyUnitsSold | UnitCost | UnitPrice |
   AltWarehouseLocation | AltWarehouseUnits`. A SKU with more than one
   alternate-warehouse location gets one extra row per location, same SKU
-  repeated — the adapter groups rows by SKU.
+  repeated — the adapter groups rows by SKU. `erp_config.excel_workbook_path`
+  and `excel_table_name` hold the real file path/table name (not
+  necessarily the `/Utopia-Inventory.xlsx` / `InventoryTable` defaults —
+  see the real pilot values noted below), same "config, not code" pattern
+  as Odoo's `base_url`/SAP's `company_db`.
 - **Dashboard wiring**: the topbar's "ERP: not connected" button now
   navigates to Add tools instead of showing a toast. Add tools gained a
   real "Microsoft Excel / OneDrive" card — "Connect with Microsoft" when
@@ -343,15 +347,40 @@ plumbing as Odoo/SAP B1.
   matching live-status row. Landing back from Microsoft with
   `?excel=connected` shows a toast and jumps straight to Add tools so the
   new connection is visible immediately; `?excel=error` shows the error
-  and stays put.
-- **Verified**: `excel-oauth-start` and `excel-status` confirmed live via
-  curl (honest "not configured yet" responses before Azure credentials
-  are stored); headless-browser pass across both connected/not-connected
-  states for the Add tools card, Integrations row, and both redirect
-  outcomes, zero JS errors. The real end-to-end Microsoft sign-in
-  (clicking Connect, logging in, landing back connected, `erp-inventory`
-  returning real workbook rows) is verified once the user finishes Azure
-  setup and creates the `InventoryTable` workbook — see chat for status.
+  and stays put. Command's Decision Queue ERP tag and the Signal Watch
+  "Excel / ERP context" row both read `erpProvider` from
+  `risk-recommendation` and now recognize `excel` alongside `odoo`/
+  `sap_b1` (an early miss — they only checked for the first two, so a
+  genuinely-connected Excel source still showed "unavailable" on Command
+  until this was fixed); the Signal Watch row is also clickable through
+  to Add tools now, matching the topbar button.
+- **Real pilot connection, verified live end-to-end** (not just
+  headless-mocked): Azure app registered under the user's **personal**
+  Microsoft account — deliberately not their college account, since an
+  app registration lives in whoever's tenant creates it and a
+  deprovisioned college account could have taken the whole connector down
+  with it. (Azure Portal kept routing sign-in to the college SSO session
+  even in fresh browsers — fixed with `https://portal.azure.com/?whr=live.com`,
+  which forces Microsoft's home-realm-discovery to the personal/consumer
+  identity provider instead of guessing at an org one.) Client ID/secret
+  stored in `excel_oauth`, confirmed via `excel-oauth-start` 302ing to a
+  real `login.microsoftonline.com` URL with the right client_id. Real
+  sign-in completed, `excel-status` confirmed `connected: true`.
+  `erp-inventory`'s first live call 404'd (`itemNotFound`) — the actual
+  OneDrive file had landed as `Utopia-Inventory.xlsx.xlsx` (Excel
+  appended its own extension on top of one already typed in the save
+  dialog) and the table was still Excel's default name (`Table2`, not
+  `Table1` — a table had been deleted and recreated once), not the
+  documented `InventoryTable`. Root-caused with a temporary diagnostic
+  function (`excel-debug` — lists OneDrive root contents + a target
+  file's real worksheets/tables via Graph, no tokens returned) rather
+  than guessing further; `erp_config` updated to the real path/table
+  name, confirmed `erp-inventory` returns `{ok:true, provider:"excel"}`
+  (empty `items[]` until the user adds data rows — headers only so far).
+  `excel-debug` has since been disabled (returns 410) since there's no
+  tool access to delete an Edge Function outright — **safe to delete
+  manually**: Supabase dashboard → Project → Edge Functions →
+  `excel-debug`.
 
 ## Scoring engine (step 4)
 
