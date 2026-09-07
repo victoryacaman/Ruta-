@@ -165,6 +165,23 @@ button:disabled{opacity:.55;cursor:default}
 .lang-toggle{display:block;width:42px;margin:0 0 10px;border:1px solid var(--line);color:#c9c9d1;background:var(--card);border-radius:9px;height:30px;font-size:11px;font-weight:800;letter-spacing:.03em;cursor:pointer}
 .lang-toggle:hover{color:#fff;background:#1c1c20}
 
+/* --- Additions: visual refresh — wider elevation scale (page/card/
+   sidebar were only ~10-20 RGB units apart, flattening the whole UI) and
+   a calmer default accent (the old --orange, #ff4444, styled the routine
+   "some data is demo" banner shown on nearly every load — too alarming
+   for something that isn't an error). Real warnings inside data rows
+   (below-reorder figures, severity-high, urgency notes) all reference
+   --orange too, so this one change recalibrates both at once. --- */
+:root{
+  --card:#17171b;
+  --line:#38383f;
+  --orange:#e8a33d;
+}
+/* Shipments' "Add shipment" form (and anywhere else a bare input/select
+   is used without the .settings-field wrapper) fell back to unstyled
+   browser-default white fields — same kind of field as Settings'
+   correctly dark-themed .settings-field input, now made consistent. */
+input[type],select{background:#0f0f12;border:1px solid #333338;color:var(--ink);border-radius:7px;height:38px;padding:0 12px;font-size:12px}
 </style>
 </head>
 <body class="antialiased">
@@ -521,23 +538,43 @@ function renderCorridorCard(corridor, timeLabel, locationName){
   evidenceRow.innerHTML = evidenceParts.map(function(p){ return '<span>' + p + '</span>'; }).join('<span>•</span>');
 }
 
+// Metric-card accent color, driven by the actual value instead of a
+// fixed position — a healthy "0 at risk" or a plain informational field
+// (a fetch timestamp) shouldn't wear the same red as a genuine warning.
+function metricClass(kind, value){
+  if(kind === 'risk') return value > 0 ? 'metric-danger' : 'metric-neutral';
+  if(kind === 'warn') return value > 0 ? 'metric-warning' : 'metric-neutral';
+  if(kind === 'coverage') return value >= 95 ? 'metric-success' : value >= 80 ? 'metric-warning' : 'metric-danger';
+  return 'metric-neutral'; // 'plain' and anything else — no risk meaning at all
+}
+function setMetricClass(valueElId, cls){
+  var valueEl = document.getElementById(valueElId);
+  var card = valueEl && valueEl.closest('.metric');
+  if(card) card.className = 'metric ' + cls;
+}
+
 function renderMetrics(corridor, rec){
   document.getElementById('metricExposureValue').textContent = rec.applicable ? formatLps(rec.totalExposureLps) : 'L 0';
   document.getElementById('metricExposureNote').textContent = rec.applicable
     ? rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + tr(' at risk', ' en riesgo')
     : tr('No SKUs at risk right now', 'Sin SKUs en riesgo por ahora');
+  setMetricClass('metricExposureValue', metricClass('risk', rec.applicable ? rec.totalExposureLps : 0));
 
   var disruptionCount = corridor.relevantStorms.length + (corridor.flaggedWeatherDays > 0 ? 1 : 0);
   document.getElementById('metricDisruptionsValue').textContent = String(disruptionCount).padStart(2, '0');
   document.getElementById('metricDisruptionsNote').textContent =
     corridor.relevantStorms.length + tr(' storm(s) · ', ' tormenta(s) · ') + (corridor.flaggedWeatherDays > 0 ? '1' : '0') + tr(' severe-weather flag', ' alerta de clima severo');
+  setMetricClass('metricDisruptionsValue', metricClass('warn', disruptionCount));
 
   document.getElementById('metricStockoutsValue').textContent = rec.applicable ? String(rec.atRiskSkus.length) : '0';
   document.getElementById('metricStockoutsNote').textContent = corridor.expectedDelayDays > 0
     ? tr('Within the ', 'Dentro del retraso esperado de ') + corridor.expectedDelayDays + tr('-day expected delay', ' días')
     : tr('No delay currently expected', 'Sin retraso esperado actualmente');
+  setMetricClass('metricStockoutsValue', metricClass('risk', rec.applicable ? rec.atRiskSkus.length : 0));
 
-  document.getElementById('metricCoverageValue').textContent = (rec.applicable ? rec.avgCoveragePct : 100) + '%';
+  var coveragePct = rec.applicable ? rec.avgCoveragePct : 100;
+  document.getElementById('metricCoverageValue').textContent = coveragePct + '%';
+  setMetricClass('metricCoverageValue', metricClass('coverage', coveragePct));
 }
 
 function renderDecisionQueue(corridor, rec, erpProvider){
@@ -931,6 +968,10 @@ async function loadInventory(){
     document.getElementById('invSummaryBelowReorder').textContent = belowReorder;
     document.getElementById('invSummaryValue').textContent = formatLps(totalValue);
     document.getElementById('invSummaryFetched').textContent = new Date(data.fetchedAt).toLocaleTimeString(localeStr(), { hour: 'numeric', minute: '2-digit' });
+    setMetricClass('invSummaryCount', 'metric-neutral');
+    setMetricClass('invSummaryBelowReorder', metricClass('warn', belowReorder));
+    setMetricClass('invSummaryValue', 'metric-neutral');
+    setMetricClass('invSummaryFetched', 'metric-neutral');
 
     if(!items.length){
       listEl.innerHTML = '<div class="shipment-empty">No inventory items returned by this connector.</div>';

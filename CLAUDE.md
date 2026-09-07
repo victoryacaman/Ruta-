@@ -792,6 +792,48 @@ boundary kept in place rather than built around.
   render logic, the Settings save flow, and status fetches — zero JS
   errors.
 
+## Visual design polish pass
+
+The dark, monochrome, serif-headline direction was already a deliberate,
+distinctive choice worth keeping — this pass fixed specific execution
+issues found by actually screenshotting the rendered dashboard (headless
+Playwright, mocked API responses) rather than guessing from the CSS:
+
+- **Elevation scale widened**: `--card` (`#141417` → `#17171b`, unifying
+  it with the value already used ad-hoc by `.shipment-card`/`.decision-row`/
+  `.inventory-row` into one canonical token) and `--line`
+  (`#2a2a30` → `#38383f`) so cards and their borders read as distinct
+  surfaces instead of flattening into the near-black page background.
+  `--paper`/`--navy` (page/sidebar) were already correctly differentiated
+  and left as-is.
+- **`--orange` softened from a full-alarm red (`#ff4444`) to a calm amber
+  (`#e8a33d`)** — it styles routine, appears-on-every-load informational
+  states (`.mode-banner`'s default demo-data disclosure, below-reorder
+  figures, urgency notes), not genuine emergencies. Real high-severity
+  states use their own separately-hardcoded red (`.severity-high`,
+  `.urgent` tags) and were unaffected — verified by screenshotting an
+  actual high-severity/urgent scenario after the change and confirming it
+  still reads clearly alarming.
+- **Fixed a real inconsistency**: Shipments' "Add shipment" form inputs
+  were unstyled browser-default white fields while Settings' inputs were
+  already correctly dark-themed. Added a global `input[type],select`
+  rule matching `.settings-field input`'s treatment so every text
+  input/dropdown in the app looks the same.
+- **Metric-card accent colors made value-driven instead of fixed by
+  position** — `renderMetrics()` and the Inventory fetch handler
+  previously only ever set `.textContent`; the actual `metric-danger`/
+  `-warning`/`-neutral`/`-success` classes were hardcoded per card in the
+  static markup regardless of the real number (confirmed: Inventory's
+  "FETCHED" timestamp — zero risk meaning — was hardcoded `metric-danger`).
+  New `metricClass()`/`setMetricClass()` helpers set each card's class
+  from its actual value now, so a healthy "$0 at risk" or a plain
+  timestamp no longer looks alarming for no reason, while a genuinely
+  at-risk figure still shows red.
+- **Verified**: before/after screenshots across Command, Inventory,
+  Shipments, and Add tools; the existing regression suite (i18n toggle,
+  Excel connect, workbook picker) re-run unchanged with zero JS errors,
+  since these are CSS/class-value changes only, no structural changes.
+
 ## Language toggle (Spanish/English)
 
 The pilot audience is Honduran companies, so the dashboard defaults to
