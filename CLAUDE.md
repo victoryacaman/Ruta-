@@ -962,6 +962,34 @@ Concrete technical gaps this raised, affecting adapters already built
   real (even trial) Odoo instance and actually run `odooAdapter` against
   it before trusting it with a real pilot's data.
 
+**SAP Integration Suite vs. SAP B1's Service Layer — clarified, not a
+gap.** Researching the entrepreneur's "does it actually connect
+properly" concern turned up SAP's own "SAP Integration Suite" product,
+worth being precise about since it's easy to conflate with what's
+already built:
+- **SAP Integration Suite** is SAP's enterprise iPaaS — its own
+  governance layer, AI-agent orchestration, and separate licensing,
+  typically paired with larger SAP landscapes (S/4HANA, ECC). It's not
+  something a typical SAP Business One (SMB-tier) customer already has.
+- **What `sapB1Adapter` (`erp-inventory`) already does** — calling SAP
+  B1's own documented **Service Layer REST API** directly (`POST
+  /b1s/v1/Login`, `GET /b1s/v1/Items`) — is SAP's official first-party
+  method for exactly this kind of external read integration with SAP B1
+  specifically. This is the correct approach for an SAP B1 customer, not
+  a workaround Integration Suite would replace. Requiring Integration
+  Suite on top would likely add cost and complexity for a prospect,
+  cutting against the "accessible cost for validation" goal above.
+- The real gap remains the verification work already listed above
+  (denormalized data, untested against a live instance, licensing), not
+  the integration approach itself.
+- **One legitimate future nuance, not acted on now**: if a specific
+  prospect runs a bigger SAP landscape (not just B1) and their IT
+  requires third-party integrations to go through a governed layer
+  rather than a direct API client with stored credentials, Integration
+  Suite (or similar middleware) could become relevant — that's a
+  question to ask that prospect's IT team when it's real, not something
+  to build speculatively today.
+
 ## Build order
 
 1. **Pick pilot partner + ERP** — business decision, not a coding task,
