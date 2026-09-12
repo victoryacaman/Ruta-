@@ -928,6 +928,40 @@ before pointing it at an actual company's ERP:
 - 5–10 fastest-moving / most exposed SKUs to track first (don't try to sync
   the whole catalog): ______
 
+### From a review meeting with a tech entrepreneur (2026-09)
+
+Business-validation questions, not code — captured here so they aren't
+lost before a real prospect conversation:
+- Does the target segment already manage this in-house? Does SAP already
+  do it? Does an integrator already do it? Is there real unmet need?
+- SAP's own fees are high ("SAP Cobra alto") — relevant to how Utopia is
+  priced/positioned against it, not just against doing nothing.
+- Vendor/provider costs for whatever this depends on (hosting, APIs).
+- Who's a real prospect that can actually pay, at an accessible cost, for
+  a first validation — not necessarily the biggest logo available.
+- Pricing structure worth keeping in mind for the first pilot: **pay only
+  if it works** ("si no funciona no pagas, si funciona pagan").
+- Competitive note: **Corinsa** already has truck-fleet tracking — the
+  pitch to a prospect like this needs to be the risk-scoring + inventory
+  tie-in, not tracking alone, since tracking by itself may already be
+  solved for them.
+
+Concrete technical gaps this raised, affecting adapters already built
+(see "ERP connector" above):
+- **SAP data is denormalized** — the SAP B1 adapter's field mapping
+  (`sapB1Adapter` in `erp-inventory`) was written against the documented
+  Service Layer shape assuming a fairly direct mapping; a real SAP B1
+  instance's denormalized data model likely needs more transformation
+  than currently written. Not yet revisited against a real instance.
+- **Licensing unverified** — neither the Odoo nor SAP B1 adapter has
+  confirmed that the target company's actual license tier permits
+  third-party API integration at all. Assumed, not checked.
+- **Odoo adapter still untested against a live instance** — same caveat
+  already documented in "ERP connector" above, resurfaced here as a
+  concrete pre-pilot to-do rather than a background disclaimer: get a
+  real (even trial) Odoo instance and actually run `odooAdapter` against
+  it before trusting it with a real pilot's data.
+
 ## Build order
 
 1. **Pick pilot partner + ERP** — business decision, not a coding task,
