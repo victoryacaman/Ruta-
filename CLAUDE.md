@@ -333,6 +333,34 @@ later is a config change, not new code.
   else degrades gracefully. Verified against the real workbook: all 20
   rows now map correctly (spot-checked "Bottled Water 1L": 480 on-hand,
   100 reorder point, $8.50 unit cost — exact matches to the sheet).
+- **Follow-up bug found right after the above: the dashboard displayed
+  the wrong money field, not a missing one.** After confirming `unitCost`
+  resolved correctly server-side, the Inventory view still showed `$0`
+  for every SKU and for "Inventory Value." Root cause: every adapter
+  (demo, Odoo, SAP B1, Excel) has always returned **two distinct** money
+  fields — `unitCost` (cost basis) and `unitPrice` (sale/list price),
+  deliberately different concepts (demo mode alone: `unitCost: 145.0`
+  vs. `unitPrice: 249.0`) — but `ruta-dashboard-fixed.html` only ever
+  read `i.unitPrice`, for both the per-row stat and the "Inventory
+  Value" summary metric. `unitCost` was resolved and returned but never
+  consumed anywhere in the frontend. This user's real sheet has no
+  "Unit Price"/"Selling Price" column at all — only cost — so
+  `unitPrice` correctly (honestly) resolved to 0, masking the real data
+  sitting unused in `unitCost`. Fixed by switching both the per-row stat
+  and the "Inventory Value" calculation to `unitCost` — which is also
+  the conceptually correct field for this metric regardless of this
+  user's column names, since inventory is valued at cost in standard
+  accounting, not at list price. `risk-recommendation`'s own use of
+  `unitPrice` for sales-exposure math is unrelated and correct as-is (a
+  lost sale is properly valued at sale price, not cost) — left
+  unchanged. Known side effect: demo/Odoo/SAP B1's "Inventory Value"
+  numbers now reflect cost instead of list price, which is the accurate
+  behavior for a metric with that name. Verified: curl against the live
+  `erp-inventory` response confirmed `unitCost` matches the sheet exactly
+  (8.5, 14, 6.75, 11.2, 18…) while `unitPrice` was 0 for every item;
+  headless-browser pass with an item shaped exactly like this user's data
+  (`unitCost` set, `unitPrice: 0`) confirmed both the per-row stat and the
+  summary metric now show the correct non-zero, cost-derived figure.
 
 ## Excel / OneDrive connector (Microsoft OAuth, live)
 

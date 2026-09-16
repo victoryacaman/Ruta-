@@ -312,7 +312,7 @@ var T = {
     'Niveles de inventario en vivo que alimentan el motor de puntuación de riesgo. Excel/Odoo/SAP Business One se conectan aquí de la misma forma — esta es la estructura real de datos contra la que se mide la señal del corredor, no una maqueta.',
   'SKUS TRACKED': 'SKUS RASTREADOS', 'This connector': 'Este conector',
   'BELOW REORDER POINT': 'BAJO PUNTO DE REORDEN', 'Needs attention': 'Requiere atención',
-  'INVENTORY VALUE': 'VALOR DE INVENTARIO', 'On-hand × unit price': 'Existencia × precio unitario',
+  'INVENTORY VALUE': 'VALOR DE INVENTARIO', 'On-hand × unit cost': 'Existencia × costo unitario',
   'FETCHED': 'CONSULTADO', 'Auto-updates every 25s': 'Se actualiza cada 25s',
   'SKU DETAIL': 'DETALLE DE SKU', 'On-hand vs. safety stock': 'Existencia vs. stock de seguridad',
   'No inventory items returned by this connector.': 'Este conector no devolvió artículos de inventario.',
@@ -962,7 +962,7 @@ function renderInventoryView(){
     '<section class="metrics" aria-label="Inventory summary">' +
     '<article class="metric metric-neutral"><div class="metric-label">SKUS TRACKED</div><div class="metric-value" id="invSummaryCount">…</div><div class="metric-note">This connector</div></article>' +
     '<article class="metric metric-warning"><div class="metric-label">BELOW REORDER POINT</div><div class="metric-value" id="invSummaryBelowReorder">…</div><div class="metric-note">Needs attention</div></article>' +
-    '<article class="metric metric-success"><div class="metric-label">INVENTORY VALUE</div><div class="metric-value" id="invSummaryValue">…</div><div class="metric-note">On-hand × unit price</div></article>' +
+    '<article class="metric metric-success"><div class="metric-label">INVENTORY VALUE</div><div class="metric-value" id="invSummaryValue">…</div><div class="metric-note">On-hand × unit cost</div></article>' +
     '<article class="metric metric-danger"><div class="metric-label">FETCHED</div><div class="metric-value" id="invSummaryFetched" style="font-size:14px">…</div><div class="metric-note">Auto-updates every 25s</div></article>' +
     '</section>' +
     '<section class="panel"><div class="panel-head"><div><p class="eyebrow">SKU DETAIL</p><h3>On-hand vs. safety stock</h3></div>' +
@@ -996,7 +996,7 @@ async function loadInventory(){
 
     var items = data.items || [];
     var belowReorder = items.filter(function(i){ return i.onHandUnits < i.reorderPoint; }).length;
-    var totalValue = items.reduce(function(s, i){ return s + i.onHandUnits * i.unitPrice; }, 0);
+    var totalValue = items.reduce(function(s, i){ return s + i.onHandUnits * i.unitCost; }, 0);
 
     document.getElementById('invSummaryCount').textContent = items.length;
     document.getElementById('invSummaryBelowReorder').textContent = belowReorder;
@@ -1022,7 +1022,7 @@ async function loadInventory(){
         '<div><strong>' + i.name + '</strong><div class="inventory-row-sku">' + i.sku + '</div></div>' +
         '<div class="inventory-stat">' + (belowReorder ? '<span class="inventory-below-reorder">' + i.onHandUnits + '</span>' : i.onHandUnits) + ' <small>/ ' + i.reorderPoint + ' ' + tr('reorder pt', 'pto. de reorden') + '</small></div>' +
         '<div class="inventory-stat">' + (daysStock !== null ? daysStock + ' ' + tr('days', 'días') : '—') + '<br><small>safety stock</small></div>' +
-        '<div class="inventory-stat">' + formatLps(i.unitPrice) + '</div>' +
+        '<div class="inventory-stat">' + formatLps(i.unitCost) + '</div>' +
         '<div class="inventory-alt">' + altText + '</div>' +
         '</div>';
     }).join('');
