@@ -221,6 +221,7 @@ var originalCommandHtml = null; // pristine English Command markup, captured onc
 var originalSidebarHtml = null; // same idea for the sidebar, which applyI18n() alone can't reset since it's additive-only
 var lastResult = null; // cached so undoDismiss() can re-render without refetching
 var currentView = 'command'; // tracked so the language toggle knows what to re-render
+var inventoryPollTimer = null; // auto-refresh while Inventory is open, see renderInventoryView()/stopInventoryPolling()
 
 // --- i18n: Spanish default (pilot audience is Honduran companies), English
 // toggle. Two mechanisms: (1) a static-string dictionary (T) applied via a
@@ -311,7 +312,7 @@ var T = {
   'SKUS TRACKED': 'SKUS RASTREADOS', 'This connector': 'Este conector',
   'BELOW REORDER POINT': 'BAJO PUNTO DE REORDEN', 'Needs attention': 'Requiere atención',
   'INVENTORY VALUE': 'VALOR DE INVENTARIO', 'On-hand × unit price': 'Existencia × precio unitario',
-  'FETCHED': 'CONSULTADO', 'Live on every load': 'En vivo en cada carga',
+  'FETCHED': 'CONSULTADO', 'Auto-updates every 25s': 'Se actualiza cada 25s',
   'SKU DETAIL': 'DETALLE DE SKU', 'On-hand vs. safety stock': 'Existencia vs. stock de seguridad',
   'No inventory items returned by this connector.': 'Este conector no devolvió artículos de inventario.',
   'reorder pt': 'pto. de reorden', 'days': 'días', 'safety stock': 'stock de seguridad',
@@ -787,6 +788,7 @@ function showNotificationSummary(){
 }
 
 function selectNav(el){
+  stopInventoryPolling();
   document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
   el.classList.add('active');
   var view = el.getAttribute('data-view');
@@ -818,6 +820,7 @@ function selectNav(el){
   }
 }
 function backToCommand(){
+  stopInventoryPolling();
   currentView = 'command';
   document.querySelector('main.main').innerHTML = mainContent;
   document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
@@ -940,7 +943,7 @@ function renderInventoryView(){
     '<article class="metric metric-neutral"><div class="metric-label">SKUS TRACKED</div><div class="metric-value" id="invSummaryCount">…</div><div class="metric-note">This connector</div></article>' +
     '<article class="metric metric-warning"><div class="metric-label">BELOW REORDER POINT</div><div class="metric-value" id="invSummaryBelowReorder">…</div><div class="metric-note">Needs attention</div></article>' +
     '<article class="metric metric-success"><div class="metric-label">INVENTORY VALUE</div><div class="metric-value" id="invSummaryValue">…</div><div class="metric-note">On-hand × unit price</div></article>' +
-    '<article class="metric metric-danger"><div class="metric-label">FETCHED</div><div class="metric-value" id="invSummaryFetched" style="font-size:14px">…</div><div class="metric-note">Live on every load</div></article>' +
+    '<article class="metric metric-danger"><div class="metric-label">FETCHED</div><div class="metric-value" id="invSummaryFetched" style="font-size:14px">…</div><div class="metric-note">Auto-updates every 25s</div></article>' +
     '</section>' +
     '<section class="panel"><div class="panel-head"><div><p class="eyebrow">SKU DETAIL</p><h3>On-hand vs. safety stock</h3></div>' +
     '<button class="text-button" onclick="loadInventory()">Refresh</button></div>' +
@@ -948,6 +951,17 @@ function renderInventoryView(){
     '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
     '</div>';
   loadInventory();
+  // Auto-refresh so an edit to the connected Excel/Odoo/SAP data shows up
+  // without a manual click. document.hidden skips the fetch while the tab
+  // is backgrounded, so an idle open tab doesn't keep refreshing the
+  // Microsoft Graph token / calling the API for nothing.
+  inventoryPollTimer = setInterval(function(){
+    if(!document.hidden) loadInventory();
+  }, 25000);
+}
+
+function stopInventoryPolling(){
+  if(inventoryPollTimer){ clearInterval(inventoryPollTimer); inventoryPollTimer = null; }
 }
 
 async function loadInventory(){

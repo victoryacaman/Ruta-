@@ -275,6 +275,39 @@ later is a config change, not new code.
   see it working at all. Verified headless with mocked data (math checks
   out: 96×249 + 400×1450 = 603,904) and confirmed live against the real
   deployed `erp-inventory` endpoint.
+- **Auto-refreshes every 25s while open** — the Inventory view used to
+  only fetch once per load, with a manual "Refresh" button the only way
+  to see a change. Found directly: the user edited the connected Excel
+  workbook to test this and nothing updated until a manual click. Fixed
+  with a plain `setInterval(loadInventory, 25000)` (`inventoryPollTimer`,
+  started in `renderInventoryView()`), gated on `!document.hidden` so an
+  idle backgrounded tab doesn't keep refreshing the Microsoft Graph token
+  and calling the API for nothing, and cleared via `stopInventoryPolling()`
+  (called from both `selectNav()` and `backToCommand()`) so it never keeps
+  firing after leaving the view. 25s matches the cadence already
+  established elsewhere in this project family (`attendance-feed`'s 20s
+  poll). Scoped to Inventory only — Command's metrics/Decision Queue also
+  derive from ERP data, but recomputing the full `risk-recommendation`
+  (which also calls live Open-Meteo/NOAA weather and storm APIs) every
+  25s would be unnecessary churn against those external services for
+  data that doesn't need sub-minute freshness; Command still refreshes on
+  next load/navigation. Easy follow-up if wanted, not built speculatively.
+  Verified headless (mocked `erp-inventory`, sped-up interval): confirmed
+  it actually refetches on a timer, confirmed `document.hidden` correctly
+  pauses it, confirmed the interval is actually cleared on navigating away
+  (no leaked background fetches).
+- **A real onboarding trap, worth flagging plainly**: adding data to a
+  new sheet in the connected workbook isn't enough by itself — Microsoft
+  Graph's `workbook/tables` API (what `excel-browse`/`erp-inventory` both
+  read) only recognizes an actual Excel **Table object** (Insert → Table
+  / Ctrl+T). Manually coloring/bordering cells to *look* like a table,
+  however polished, doesn't register as one — confirmed hitting exactly
+  this: a new sheet with a styled blue header row and yellow highlight
+  fills still returned zero tables from `excel-browse`. The picker's
+  empty-state message already says this
+  (`'da formato a tus datos como Tabla en Excel primero'`) — worth
+  restating anywhere onboarding a new pilot user, since it's not an
+  obvious distinction if you don't already know Excel's Table feature.
 
 ## Excel / OneDrive connector (Microsoft OAuth, live)
 
