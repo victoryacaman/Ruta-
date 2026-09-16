@@ -222,6 +222,7 @@ var originalSidebarHtml = null; // same idea for the sidebar, which applyI18n() 
 var lastResult = null; // cached so undoDismiss() can re-render without refetching
 var currentView = 'command'; // tracked so the language toggle knows what to re-render
 var inventoryPollTimer = null; // auto-refresh while Inventory is open, see renderInventoryView()/stopInventoryPolling()
+var CURRENCY_SYMBOL = 'L'; // display label only (see risk_location_config.currency_symbol) -- set from real config in DOMContentLoaded, no conversion math anywhere
 
 // --- i18n: Spanish default (pilot audience is Honduran companies), English
 // toggle. Two mechanisms: (1) a static-string dictionary (T) applied via a
@@ -350,6 +351,10 @@ var T = {
   'MONITORED LOCATION': 'UBICACIÓN MONITOREADA', 'Where the signal is measured': 'Dónde se mide la señal',
   'Location name': 'Nombre de la ubicación', 'Latitude': 'Latitud', 'Longitude': 'Longitud',
   'Relevant storm radius (km)': 'Radio de tormentas relevante (km)', 'Save location': 'Guardar ubicación',
+  'Currency': 'Moneda', 'Currency code': 'Código de moneda', 'Currency symbol': 'Símbolo de moneda',
+  'Other (custom)…': 'Otra (personalizada)…',
+  'Honduran Lempira (L)': 'Lempira hondureña (L)', 'US Dollar ($)': 'Dólar estadounidense ($)',
+  'Euro (€)': 'Euro (€)', 'Mexican Peso (Mex$)': 'Peso mexicano (Mex$)', 'British Pound (£)': 'Libra esterlina (£)',
   'Connected — test mode': 'Conectado — modo de prueba',
   'Monitored location updated — takes effect on the next signal computation.': 'Ubicación monitoreada actualizada — entra en vigor en el próximo cálculo de señal.',
   'Unavailable': 'No disponible',
@@ -443,7 +448,7 @@ function rerenderCurrentView(){
 }
 
 function formatLps(n){
-  return "L " + Math.round(n).toLocaleString();
+  return CURRENCY_SYMBOL + " " + Math.round(n).toLocaleString();
 }
 
 function skuWord(n){
@@ -555,7 +560,7 @@ function setMetricClass(valueElId, cls){
 }
 
 function renderMetrics(corridor, rec){
-  document.getElementById('metricExposureValue').textContent = rec.applicable ? formatLps(rec.totalExposureLps) : 'L 0';
+  document.getElementById('metricExposureValue').textContent = rec.applicable ? formatLps(rec.totalExposureLps) : CURRENCY_SYMBOL + ' 0';
   document.getElementById('metricExposureNote').textContent = rec.applicable
     ? rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + tr(' at risk', ' en riesgo')
     : tr('No SKUs at risk right now', 'Sin SKUs en riesgo por ahora');
@@ -700,6 +705,21 @@ document.addEventListener('DOMContentLoaded', function(){
   applyI18n(document.querySelector('.sidebar'));
   document.getElementById('todayLabel').textContent =
     new Date().toLocaleDateString(localeStr(), { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
+  // Fetched in parallel with (not before) the risk recommendation --
+  // gating the whole Command view's first paint behind an unrelated
+  // settings endpoint would make the core risk display fragile against
+  // that endpoint's own latency/uptime. Worst case here is a brief
+  // flash of the default "L" symbol, self-corrected below.
+  fetch(RISK_LOCATION_SETTINGS_URL).then(function(res){ return res.json(); }).then(function(data){
+    if(data.ok && data.config && data.config.currency_symbol){
+      CURRENCY_SYMBOL = data.config.currency_symbol;
+      // Only re-render if Command is still the visible view -- lastResult
+      // may already exist from the initial load, but the user could have
+      // navigated elsewhere by the time this resolves.
+      if(lastResult && currentView === 'command') renderMetrics(lastResult.corridor, lastResult.recommendation);
+    }
+  }).catch(function(){});
+
   loadRiskRecommendation().finally(function(){
     mainContent = document.querySelector('main.main').innerHTML; // cache the Command view AFTER live data renders (and after translation)
     handleExcelRedirect(); // only after mainContent is cached, so navigating away here can't corrupt "Back to Command"
@@ -1219,6 +1239,16 @@ function renderSettingsView(){
     '<div class="settings-field"><label>Latitude</label><input type="text" id="setLat" required></div>' +
     '<div class="settings-field"><label>Longitude</label><input type="text" id="setLon" required></div>' +
     '<div class="settings-field"><label>Relevant storm radius (km)</label><input type="text" id="setRadius" required></div>' +
+    '<div class="settings-field"><label>Currency</label><select id="setCurrency">' +
+    '<option value="HNL|L">Honduran Lempira (L)</option>' +
+    '<option value="USD|$">US Dollar ($)</option>' +
+    '<option value="EUR|€">Euro (€)</option>' +
+    '<option value="MXN|Mex$">Mexican Peso (Mex$)</option>' +
+    '<option value="GBP|£">British Pound (£)</option>' +
+    '<option value="other">Other (custom)…</option>' +
+    '</select></div>' +
+    '<div class="settings-field" id="setCurrencyCustomRow" hidden><label>Currency code</label><input type="text" id="setCurrencyCodeCustom" maxlength="10" placeholder="CAD"></div>' +
+    '<div class="settings-field" id="setCurrencySymbolCustomRow" hidden><label>Currency symbol</label><input type="text" id="setCurrencySymbolCustom" maxlength="5" placeholder="C$"></div>' +
     '<button type="submit" class="primary-button">Save location</button>' +
     '<div class="settings-status-row">' +
     '<div class="settings-status-item"><span>ERP connector</span><span id="setErpStatus">Loading…</span></div>' +
@@ -1228,12 +1258,31 @@ function renderSettingsView(){
     '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
     '</div>';
 
+  var CURRENCY_PRESETS = ['HNL|L', 'USD|$', 'EUR|€', 'MXN|Mex$', 'GBP|£'];
+  function toggleCurrencyCustomRows(show){
+    document.getElementById('setCurrencyCustomRow').hidden = !show;
+    document.getElementById('setCurrencySymbolCustomRow').hidden = !show;
+  }
+  document.getElementById('setCurrency').addEventListener('change', function(){
+    toggleCurrencyCustomRows(this.value === 'other');
+  });
+
   fetch(RISK_LOCATION_SETTINGS_URL).then(function(res){ return res.json(); }).then(function(data){
     if(!data.ok || !data.config) return;
     document.getElementById('setLocationName').value = data.config.location_name;
     document.getElementById('setLat').value = data.config.lat;
     document.getElementById('setLon').value = data.config.lon;
     document.getElementById('setRadius').value = data.config.relevant_radius_km;
+    var currentCurrency = (data.config.currency_code || 'HNL') + '|' + (data.config.currency_symbol || 'L');
+    if(CURRENCY_PRESETS.indexOf(currentCurrency) !== -1){
+      document.getElementById('setCurrency').value = currentCurrency;
+      toggleCurrencyCustomRows(false);
+    } else {
+      document.getElementById('setCurrency').value = 'other';
+      document.getElementById('setCurrencyCodeCustom').value = data.config.currency_code || '';
+      document.getElementById('setCurrencySymbolCustom').value = data.config.currency_symbol || '';
+      toggleCurrencyCustomRows(true);
+    }
   }).catch(function(){});
 
   fetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
@@ -1242,16 +1291,29 @@ function renderSettingsView(){
 
   document.getElementById('locationSettingsForm').addEventListener('submit', function(e){
     e.preventDefault();
+    var curSel = document.getElementById('setCurrency').value;
+    var currencyCode, currencySymbol;
+    if(curSel === 'other'){
+      currencyCode = document.getElementById('setCurrencyCodeCustom').value.trim() || 'HNL';
+      currencySymbol = document.getElementById('setCurrencySymbolCustom').value.trim() || 'L';
+    } else {
+      var parts = curSel.split('|');
+      currencyCode = parts[0];
+      currencySymbol = parts[1];
+    }
     var payload = {
       locationName: document.getElementById('setLocationName').value.trim(),
       lat: parseFloat(document.getElementById('setLat').value),
       lon: parseFloat(document.getElementById('setLon').value),
       relevantRadiusKm: parseInt(document.getElementById('setRadius').value, 10),
+      currencyCode: currencyCode,
+      currencySymbol: currencySymbol,
     };
     fetch(RISK_LOCATION_SETTINGS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function(res){ return res.json(); })
       .then(function(data){
         if(!data.ok) throw new Error(data.error || 'risk-location-settings reported an error');
+        CURRENCY_SYMBOL = currencySymbol; // reflect immediately, no reload needed
         showToast(tr('Monitored location updated — takes effect on the next signal computation.', 'Ubicación monitoreada actualizada — entra en vigor en el próximo cálculo de señal.'));
       })
       .catch(function(e){ showToast(tr('Could not save — ', 'No se pudo guardar — ') + e.message); });

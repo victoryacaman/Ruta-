@@ -835,6 +835,33 @@ boundary kept in place rather than built around.
   status read-only — actual ERP/WhatsApp credentials are configured
   directly with a Utopia contact, never through a client-side form. This
   was a deliberate security call, not an oversight.
+- **Currency is now configurable, not hardcoded** — every monetary value
+  used to be hardcoded to Lempiras via `formatLps()` (`"L " + n`), which
+  mislabeled numbers for anyone whose ERP/Excel workbook prices items in
+  a different currency. This is a **display-label fix only, not currency
+  conversion** — there's no exchange-rate math anywhere, and there
+  shouldn't be: the source data already reports costs in whatever
+  currency that business uses, so Utopia only needs to know which symbol
+  to show. `risk_location_config` gained `currency_code`/`currency_symbol`
+  columns (default `HNL`/`L`, so the existing config's behavior didn't
+  change until someone edits it); `risk-location-settings` reads/writes
+  them the same way it already did for location/radius. Settings has a
+  new Currency field — a preset dropdown (Lempira, US Dollar, Euro,
+  Mexican Peso, British Pound) plus an "Other (custom)" option that
+  reveals two plain text inputs for any other code/symbol — wired to the
+  same GET-populate/POST-submit cycle, and it updates the live
+  `CURRENCY_SYMBOL` global immediately on save so the rest of the
+  dashboard reflects it without a reload. The dashboard fetches this
+  config on load **in parallel with** `loadRiskRecommendation()`, not
+  before it — an earlier version of this gated the risk recommendation
+  fetch behind the currency fetch first (to avoid a symbol flash on
+  first paint), but that coupled Command's entire initial risk display
+  to an unrelated settings endpoint's latency/uptime, which is a worse
+  trade than an occasional brief flash of the default symbol. If the
+  currency fetch resolves after the initial render, it re-renders just
+  the metrics (`renderMetrics`) to correct the symbol — guarded on
+  `currentView === 'command'` so it can't touch DOM for a view the user
+  has already navigated away to.
 - **Add tools** — an honest ERP-onboarding page describing all three real
   adapters (Odoo's JSON-RPC, SAP Business One's Service Layer REST, and
   Excel/OneDrive via Microsoft Graph — see "ERP connector" and "Excel /
@@ -848,7 +875,12 @@ boundary kept in place rather than built around.
   (POST then GET confirms the write persisted) via curl, and a
   headless-browser pass across all three views (mocked data) confirming
   render logic, the Settings save flow, and status fetches — zero JS
-  errors.
+  errors. Currency specifically re-verified the same way after adding it
+  (curl round-trip with a test currency, restored back to the real
+  `HNL`/`L` config afterward; headless pass confirming Command/Inventory
+  render the fetched symbol and the Settings form's preset/custom-currency
+  round trip) — this second pass is also what caught the sequential-fetch
+  latency regression described above, before it shipped.
 
 ## Visual design polish pass
 
