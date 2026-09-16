@@ -308,6 +308,31 @@ later is a config change, not new code.
   (`'da formato a tus datos como Tabla en Excel primero'`) — worth
   restating anywhere onboarding a new pilot user, since it's not an
   obvious distinction if you don't already know Excel's Table feature.
+- **Columns are now resolved by header name, not fixed position** — a
+  real second issue found in the same test: once the new table *was*
+  recognized, its numbers came through scrambled (0 on-hand units, a
+  $100 "unit cost" that was actually the reorder level, a warehouse
+  "location" that was actually a dollar total, an alternate-warehouse
+  unit count that was actually an Excel date serial number). Root cause:
+  `excelAdapter` destructured each row positionally
+  (`[sku, name, onHand, reorderPt, ...] = cells`), assuming the exact
+  documented column order — but a real user's sheet had different
+  columns in a different order (`SKU, Name, Category, Warehouse
+  Location, Quantity on Hand, Reorder Level, Unit Cost (USD), Total
+  Value (USD), Last Updated, Status`), and fixed-position reading just
+  silently read the wrong column into the wrong field with no error.
+  Fixed by fetching the table's real header row
+  (`GET .../tables('{name}')/headerRowRange`) and resolving each field
+  to a column index via `HEADER_ALIASES` — a broad, normalized
+  (case/punctuation/spacing-insensitive) list of realistic header
+  variants per field. A field with no matching header is left honest
+  (`null`/`0`/`[]`) rather than guessing at an unrelated column — this
+  sheet has no real "unit price" or "alternate warehouse" concept at
+  all, so those stay empty instead of being faked from Total Value or
+  Warehouse Location. Only a SKU-like header is required; everything
+  else degrades gracefully. Verified against the real workbook: all 20
+  rows now map correctly (spot-checked "Bottled Water 1L": 480 on-hand,
+  100 reorder point, $8.50 unit cost — exact matches to the sheet).
 
 ## Excel / OneDrive connector (Microsoft OAuth, live)
 
