@@ -1141,6 +1141,34 @@ already built:
   question to ask that prospect's IT team when it's real, not something
   to build speculatively today.
 
+**ZafraCloud: adapter built, verification deliberately deferred, not
+forgotten (2026-09).** After a real ZafraCloud contact answered
+technical questions and a real sales rep quoted real pricing, a
+concrete decision was made worth recording:
+- Getting a token to actually test `zafraCloudAdapter` costs real money
+  — **L.575 one-time** for the Tokens/API integration itself, on top of
+  whatever monthly ZafraCloud plan is active (cheapest is Plan Lite,
+  L.350/month). Webhooks are a separate, pricier **L.920/month**
+  recurring add-on — not needed, since Utopia already polls
+  `erp-inventory` on a schedule rather than needing push notifications.
+- **Decision: don't spend that money yet.** The honest reasoning —
+  there's no confirmed ZafraCloud-using prospect lined up, and no
+  validated read on how many of Utopia's actual target market run
+  ZafraCloud specifically vs. just knowing it exists. Paying to verify a
+  connector nobody has asked for yet would be the same mistake the
+  "accessible cost for validation" principle above already warns
+  against for the SAP Integration Suite question. Same posture as Odoo
+  and SAP B1: built from a real, documented API contract, deliberately
+  left unverified until an actual prospect on that system exists.
+- **What to do instead, now**: use the already-shipped adapter (and its
+  Add Tools card in the dashboard) as a real, presentable capability
+  when validating interest with prospects — "we can already connect to
+  ZafraCloud" is true and demoable without having spent the money to
+  prove it against a live account yet. Only pay for the real token once
+  a specific ZafraCloud-using prospect is validated and ready to
+  onboard (at which point they'd likely absorb that cost as part of
+  adopting Utopia, same as any other ERP integration would).
+
 ## Build order
 
 1. **Pick pilot partner + ERP** — business decision, not a coding task,
