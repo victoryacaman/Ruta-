@@ -308,8 +308,8 @@ var T = {
   'Shipment added.': 'Envío agregado.',
   // Inventory
   'ERP connector': 'Conector ERP',
-  'Live inventory levels feeding the risk scoring engine. Excel/Odoo/SAP Business One connect here the same way — this is the actual data shape the corridor signal is measured against, not a mockup.':
-    'Niveles de inventario en vivo que alimentan el motor de puntuación de riesgo. Excel/Odoo/SAP Business One se conectan aquí de la misma forma — esta es la estructura real de datos contra la que se mide la señal del corredor, no una maqueta.',
+  'Live inventory levels feeding the risk scoring engine. Excel/Odoo/SAP Business One/ZafraCloud connect here the same way — this is the actual data shape the corridor signal is measured against, not a mockup.':
+    'Niveles de inventario en vivo que alimentan el motor de puntuación de riesgo. Excel/Odoo/SAP Business One/ZafraCloud se conectan aquí de la misma forma — esta es la estructura real de datos contra la que se mide la señal del corredor, no una maqueta.',
   'SKUS TRACKED': 'SKUS RASTREADOS', 'This connector': 'Este conector',
   'BELOW REORDER POINT': 'BAJO PUNTO DE REORDEN', 'Needs attention': 'Requiere atención',
   'INVENTORY VALUE': 'VALOR DE INVENTARIO', 'On-hand × unit cost': 'Existencia × costo unitario',
@@ -342,8 +342,8 @@ var T = {
   'WhatsApp Cloud API': 'API de WhatsApp Cloud',
   'Two-way — proactive send (approved template) and inbound driver replies, both proven': 'Bidireccional — envío proactivo (plantilla aprobada) y respuestas entrantes del conductor, ambos comprobados',
   'Live': 'En vivo', 'Demo data': 'Datos de muestra',
-  'Running in demo mode — sample inventory. Connecting your Odoo or SAP Business One is a configuration change.':
-    'Funcionando en modo demo — inventario de muestra. Conectar tu Odoo o SAP Business One es un cambio de configuración.',
+  'Running in demo mode — sample inventory. Connecting your Odoo, SAP Business One, or ZafraCloud is a configuration change.':
+    'Funcionando en modo demo — inventario de muestra. Conectar tu Odoo, SAP Business One o ZafraCloud es un cambio de configuración.',
   // Settings
   'Configuration': 'Configuración',
   'The monitored location drives every signal on Command. Everything else here is read-only status — ERP and WhatsApp credentials are configured directly with your Utopia contact, never through a form like this.':
@@ -360,8 +360,8 @@ var T = {
   'Unavailable': 'No disponible',
   // Add tools
   'Connect your ERP': 'Conecta tu ERP',
-  'Three real ways to connect inventory data. Excel/OneDrive below is self-service — a real Microsoft sign-in, no credential form. Odoo and SAP Business One are real adapters too, but onboarding those is a config change your Utopia contact makes with you, since ERP passwords are never handled client-side.':
-    'Tres formas reales de conectar datos de inventario. Excel/OneDrive abajo es de autoservicio — un inicio de sesión real de Microsoft, sin formulario de credenciales. Odoo y SAP Business One también son adaptadores reales, pero su incorporación es un cambio de configuración que tu contacto de Utopia hace contigo, ya que las contraseñas del ERP nunca se manejan del lado del cliente.',
+  'Four real ways to connect inventory data. Excel/OneDrive below is self-service — a real Microsoft sign-in, no credential form. Odoo, SAP Business One, and ZafraCloud are real adapters too, but onboarding those is a config change your Utopia contact makes with you, since ERP passwords and API tokens are never handled client-side.':
+    'Cuatro formas reales de conectar datos de inventario. Excel/OneDrive abajo es de autoservicio — un inicio de sesión real de Microsoft, sin formulario de credenciales. Odoo, SAP Business One y ZafraCloud también son adaptadores reales, pero su incorporación es un cambio de configuración que tu contacto de Utopia hace contigo, ya que las contraseñas del ERP y los tokens de API nunca se manejan del lado del cliente.',
   "Reads a named Table from a OneDrive workbook after a real Microsoft sign-in — no password ever touches this dashboard, only Microsoft's own login page.":
     'Lee una Tabla con nombre de un libro de OneDrive después de un inicio de sesión real de Microsoft — ningún password toca este panel, solo la propia página de inicio de sesión de Microsoft.',
   'Currently running': 'Actualmente en ejecución',
@@ -586,13 +586,13 @@ function renderMetrics(corridor, rec){
 function renderDecisionQueue(corridor, rec, erpProvider){
   var tag = document.getElementById('erpDataTag');
   tag.textContent = erpProvider === 'demo' ? tr('Demo ERP data', 'Datos de ERP de muestra')
-    : (erpProvider === 'odoo' || erpProvider === 'sap_b1' || erpProvider === 'excel') ? tr('Live: ', 'En vivo: ') + erpProvider
+    : (erpProvider === 'odoo' || erpProvider === 'sap_b1' || erpProvider === 'excel' || erpProvider === 'zafracloud') ? tr('Live: ', 'En vivo: ') + erpProvider
     : tr('ERP data unavailable', 'Datos de ERP no disponibles');
 
   var excelDesc = document.getElementById('excelSignalDesc');
   var excelStatus = document.getElementById('excelSignalStatus');
   if(excelDesc && excelStatus){
-    if(erpProvider === 'odoo' || erpProvider === 'sap_b1' || erpProvider === 'excel'){
+    if(erpProvider === 'odoo' || erpProvider === 'sap_b1' || erpProvider === 'excel' || erpProvider === 'zafracloud'){
       excelDesc.textContent = tr('Live — reading ', 'En vivo — leyendo ') + erpProvider + tr(' inventory data. Tap to manage.', '. Toca para administrar.');
       excelStatus.textContent = tr('LIVE', 'EN VIVO');
     } else {
@@ -958,7 +958,7 @@ function renderInventoryView(){
   main.innerHTML =
     '<div class="view-stack">' +
     '<div class="view-intro"><div><p class="eyebrow">INVENTORY</p><h2>ERP connector <span class="sample-tag" id="invProviderTag">…</span></h2>' +
-    '<p>Live inventory levels feeding the risk scoring engine. Excel/Odoo/SAP Business One connect here the same way — this is the actual data shape the corridor signal is measured against, not a mockup.</p></div></div>' +
+    '<p>Live inventory levels feeding the risk scoring engine. Excel/Odoo/SAP Business One/ZafraCloud connect here the same way — this is the actual data shape the corridor signal is measured against, not a mockup.</p></div></div>' +
     '<section class="metrics" aria-label="Inventory summary">' +
     '<article class="metric metric-neutral"><div class="metric-label">SKUS TRACKED</div><div class="metric-value" id="invSummaryCount">…</div><div class="metric-note">This connector</div></article>' +
     '<article class="metric metric-warning"><div class="metric-label">BELOW REORDER POINT</div><div class="metric-value" id="invSummaryBelowReorder">…</div><div class="metric-note">Needs attention</div></article>' +
@@ -1091,7 +1091,8 @@ function renderRisksView(){
 // Integrations — real status of every live data source this build
 // actually uses. No fabricated logos for connectors that don't exist
 // (the original reference mockup listed NetSuite/generic "Microsoft" —
-// dropped, since only Odoo and SAP Business One are real adapters).
+// dropped, since only Excel/OneDrive, Odoo, SAP Business One, and
+// ZafraCloud are real adapters).
 var RISK_LOCATION_SETTINGS_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/risk-location-settings";
 
 // Excel/OneDrive ERP connector — real Microsoft OAuth. excel-oauth-start
@@ -1205,7 +1206,7 @@ function renderIntegrationsView(){
     var provider = data.ok ? data.provider : 'unavailable';
     var isDemo = provider === 'demo';
     row.querySelector('p').textContent = isDemo
-      ? 'Running in demo mode — sample inventory. Connecting your Odoo or SAP Business One is a configuration change.'
+      ? 'Running in demo mode — sample inventory. Connecting your Odoo, SAP Business One, or ZafraCloud is a configuration change.'
       : tr('Live: ', 'En vivo: ') + provider;
     row.querySelector('.integration-status').className = 'integration-status ' + (isDemo ? 'integration-status-demo' : 'integration-status-live');
     row.querySelector('.integration-status').textContent = isDemo ? 'Demo data' : 'Live';
@@ -1320,16 +1321,16 @@ function renderSettingsView(){
   });
 }
 
-// Add tools — an honest ERP-onboarding page: only the two adapters that
-// are actually built (Odoo, SAP Business One), no self-service credential
-// form (erp_config credentials are set server-side only, never through a
-// public form — same reasoning as Settings above).
+// Add tools — an honest ERP-onboarding page: only the real adapters that
+// are actually built (Odoo, SAP Business One, ZafraCloud), no self-service
+// credential form (erp_config credentials/tokens are set server-side only,
+// never through a public form — same reasoning as Settings above).
 function renderAddToolsView(){
   var main = document.querySelector('main.main');
   main.innerHTML =
     '<div class="view-stack">' +
     '<div class="view-intro"><div><p class="eyebrow">ADD TOOLS</p><h2>Connect your ERP</h2>' +
-    '<p>Three real ways to connect inventory data. Excel/OneDrive below is self-service — a real Microsoft sign-in, no credential form. Odoo and SAP Business One are real adapters too, but onboarding those is a config change your Utopia contact makes with you, since ERP passwords are never handled client-side.</p></div></div>' +
+    '<p>Four real ways to connect inventory data. Excel/OneDrive below is self-service — a real Microsoft sign-in, no credential form. Odoo, SAP Business One, and ZafraCloud are real adapters too, but onboarding those is a config change your Utopia contact makes with you, since ERP passwords and API tokens are never handled client-side.</p></div></div>' +
     '<section class="panel">' +
     '<div class="tool-card-real" id="excelToolCard"><h4>Microsoft Excel / OneDrive <span class="sample-tag">Microsoft Graph</span></h4>' +
     '<p>Reads a named Table from a OneDrive workbook after a real Microsoft sign-in — no password ever touches this dashboard, only Microsoft\'s own login page.</p>' +
@@ -1339,6 +1340,8 @@ function renderAddToolsView(){
     '<p>Authenticates via <code>common.authenticate</code>, reads <code>product.product</code> for on-hand levels, and <code>sale.order.line</code> for trailing-30-day sales velocity.</p></div>' +
     '<div class="tool-card-real"><h4>SAP Business One <span class="sample-tag">Service Layer REST</span></h4>' +
     '<p>Authenticates via <code>POST /b1s/v1/Login</code>, reads <code>GET /b1s/v1/Items</code> expanding <code>ItemWarehouseInfoCollection</code> for multi-warehouse stock.</p></div>' +
+    '<div class="tool-card-real"><h4>ZafraCloud <span class="sample-tag">Bearer token REST</span></h4>' +
+    '<p>Reads <code>GET /integracion/v2/servicios</code> for per-warehouse stock and pricing, and <code>GET /integracion/servicios/movimientos</code> per SKU for reorder point, weighted-average cost, and sales history. Built from ZafraCloud\'s own public API docs — not yet verified against a live account.</p></div>' +
     '<div class="tool-card-real"><h4>Currently running <span class="sample-tag" id="addToolsCurrentProvider">…</span></h4>' +
     '<p>The Inventory and Decisions views are computed from whichever provider is configured — right now, sample data until a real ERP is connected.</p></div>' +
     '</section>' +

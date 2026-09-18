@@ -222,16 +222,18 @@ later is a config change, not new code.
 - **`erp_config` table** (Supabase project `RUTA`, same project as
   `storm-signal`) — RLS enabled, no policies (service_role only, same
   locked-down pattern as `gmail_oauth`/`oracle_config`). One row:
-  `provider` (`demo`|`odoo`|`sap_b1`|`excel`), `base_url`, `database_name`
-  (Odoo), `company_db` (SAP B1), `username`, `password`, `sku_shortlist`,
-  `excel_workbook_path` (default `/Utopia-Inventory.xlsx`),
-  `excel_table_name` (default `InventoryTable`). Currently seeded
-  `provider='demo'`. Onboarding Odoo/SAP B1 is one `UPDATE` to this row,
-  not a redeploy; onboarding Excel is the real "Connect with Microsoft"
-  button — see the dedicated section below.
+  `provider` (`demo`|`odoo`|`sap_b1`|`excel`|`zafracloud`), `base_url`,
+  `database_name` (Odoo), `company_db` (SAP B1), `username`, `password`,
+  `sku_shortlist`, `excel_workbook_path` (default
+  `/Utopia-Inventory.xlsx`), `excel_table_name` (default
+  `InventoryTable`), `api_token` (ZafraCloud's Bearer token — generic
+  column name so any future token-auth ERP can reuse it). Currently
+  seeded `provider='demo'`. Onboarding Odoo/SAP B1/ZafraCloud is one
+  `UPDATE` to this row, not a redeploy; onboarding Excel is the real
+  "Connect with Microsoft" button — see the dedicated section below.
 - **`erp-inventory` Edge Function** — read-only, unauthenticated by design
   (no write capability exists in the function at all). Reads the config
-  row, dispatches to one of four adapters, returns only
+  row, dispatches to one of five adapters, returns only
   `{ok, provider, fetchedAt, items[]}` — never credentials.
   - **Demo adapter** (fully real, fully tested): three fixed mock SKUs
     (`AUT-2201` 12V LED headlight kit, `AUT-3387` ceramic brake pads,
@@ -252,11 +254,42 @@ later is a config change, not new code.
     near/past expiry. This is the one self-service adapter — no
     credentials to write anywhere, just a real Microsoft sign-in. Full
     detail in the dedicated section below.
+  - **ZafraCloud adapter** — Bearer-token REST, built directly from
+    ZafraCloud's own public developer docs
+    (`https://app.zafra.cloud/api-public/api-doc/` — the docs page is a
+    JS shell; its real machine-readable spec is served from
+    `.../api-doc/data/api.json`, found by reading the page's own bundled
+    JS, not guessed). Confirmed real, not assumed: a real ZafraCloud
+    contact answered outreach questions directly (public API exists,
+    Bearer auth, per-account tokens recommended, sandbox requires already
+    being a client, real webhooks exist, API/webhook access is a paid
+    "booster" add-on). Combines two endpoints because the list endpoint
+    doesn't carry everything: `GET /integracion/v2/servicios` (paginated
+    — sku/name/per-warehouse stock/price lists) for the bulk of the data,
+    plus one `GET /integracion/servicios/movimientos?servicioid=X` call
+    **per SKU** for reorder point (`existenciaMin`), weighted-average cost
+    (`costoPromedio`), and sales history (`movimientos` filtered to
+    `tipoMovimiento.nombre === "Venta"`, trailing 30 days) — none of which
+    the list endpoint returns at all. That per-SKU call is a disclosed
+    N+1 cost, fine for a pilot-sized catalog (ZafraCloud's own real
+    customer profile here has ~20 SKUs), a real scaling limit for a much
+    larger one. ZafraCloud doesn't mark any warehouse as "primary" in its
+    per-item stock array, so this adapter treats the first warehouse
+    returned as the home location (`onHandUnits`) and the rest as
+    transferable alternates — a disclosed assumption, not a fact
+    ZafraCloud states.
   - **Honest caveat:** the demo adapter is proven — called directly and
-    verified end-to-end. The Odoo and SAP B1 adapters are **not** —
-    there's no live pilot ERP to test against yet, so their correctness
-    rests on documented API contracts, not an empirical test. Validate
-    against a real instance before trusting them with a real pilot.
+    verified end-to-end. The Odoo, SAP B1, and ZafraCloud adapters are
+    **not** — there's no live pilot ERP to test against yet for any of
+    the three, so their correctness rests on documented API contracts
+    (and, for ZafraCloud, a contact's direct answers) rather than an
+    empirical test. Validate against a real instance before trusting any
+    of them with a real pilot. For ZafraCloud specifically, the next real
+    step is getting a `Pruebas`-environment `base_url` + `api_token` from
+    the contact who supplied the spec, then curl-testing the two
+    endpoints above directly to confirm a real account's response shape
+    matches the doc examples, before wiring `erp_config` and trusting the
+    dashboard's numbers.
   - Neither real adapter queries per-warehouse stock or sales velocity as
     completely as the demo data does (Odoo returns no alternate-warehouse
     units yet; SAP B1's sales velocity isn't implemented yet) — noted as
