@@ -708,24 +708,33 @@ human's Facebook login — not something done from this repo). The result:
   policies (service_role only, same lockdown pattern as
   `gmail_oauth`/`oracle_config`/`erp_config`). Holds the test number's
   `phone_number_id` (`1224515280752830`), `whatsapp_business_account_id`
-  (`1598150905037308`), the live access token, and the verified test
-  recipient (`50499394433`). The token is a temporary credential from
-  Meta's console — **empirically closer to ~1 hour than the 24h
-  originally assumed here** (confirmed twice: a token issued ~17:52 UTC
-  expired by ~19:00 UTC; a second issued ~22:21 UTC expired by ~00:00
-  UTC). `token_issued_at`/`token_expires_at` are tracked but currently
-  computed as issued+24h, which is now known to be wrong/over-optimistic.
-  Given how often this has already broken automated checks in practice, a
-  longer-lived token (via a Meta Business System User) has moved from
-  "natural next step" to the actual recommended fix, not just a
-  nice-to-have.
+  (`1598150905037308`), the access token, and the verified test recipient
+  (`50499394433`). `access_token` is meant to hold a **permanent Meta
+  Business System User token** (Business Settings → System users →
+  Generate token, expiration set to "Never") — see "Manual steps" below
+  for the exact walkthrough. It has held a short-lived console-issued
+  token until now, which is exactly what broke things twice in practice
+  (a token issued ~17:52 UTC expired by ~19:00 UTC; a second issued
+  ~22:21 UTC expired by ~00:00 UTC — closer to ~1 hour than the 24h
+  originally assumed here), and is dead again as of this check. A System
+  User token generated with expiration "Never" doesn't expire on its
+  own, so `token_issued_at`/`token_expires_at` are audit-trail fields
+  only from here on — expected to stay `NULL`/unset, not something any
+  function reads or gates behavior on.
 - **`send-whatsapp-alert` Edge Function** — read-only-in-scope,
   unauthenticated by design (same reasoning as `recommendation-action`:
   it can only send using the config already on file, nothing else, and
   sending a message isn't a purchase/transfer/supplier action under the
   non-negotiable principles). Calls the real WhatsApp Cloud API
   (`graph.facebook.com/v25.0/{phone_number_id}/messages`) with the stored
-  token.
+  token. Its error handling now distinguishes Meta's Graph API error code
+  190 (`OAuthException` — invalid/expired token) from every other
+  failure: with a permanent System User token, hitting 190 means
+  something is genuinely wrong (revoked token, removed System User,
+  changed asset permissions) rather than the routine "needs refreshing
+  again" a short-lived token implied — confirmed live: the current
+  (still short-lived) token in the table returned exactly this 190 error
+  when tested just now, which is what prompted actually doing this fix.
 - **Real constraint, not glossed over**: WhatsApp's Cloud API only allows
   two kinds of outbound messages — a **pre-approved template** (right now,
   only the generic `hello_world` template that Meta provides by default;
@@ -750,6 +759,28 @@ human's Facebook login — not something done from this repo). The result:
 - **Verified for real**: called the function live, got `{ok:true}` back
   from the actual WhatsApp Cloud API, and the user confirmed receiving the
   `hello_world` message on the verified test number.
+- **Manual steps to actually get the permanent token** (Meta Business
+  Suite UI, not something done from this repo — confirmed against Meta's
+  own official docs, a free standard Business Manager feature, no app
+  review or business verification needed for this step):
+  1. Go to **business.facebook.com/settings** (Business Settings).
+  2. Left sidebar → **Users → System users**.
+  3. **+ Add** → name it (e.g. "Utopia Server") → role **Admin** →
+     Create.
+  4. Select that system user → **Assign assets** → **Apps** tab → select
+     the "Ruta" app → toggle **Full control** → Save.
+  5. Still in Assign assets → the WhatsApp Accounts tab → select the WABA
+     (`1598150905037308`) → toggle **Full control** → Save.
+  6. Back on the system user → **Generate new token**.
+  7. In the dialog: select the "Ruta" app, set **token expiration to
+     "Never"** (the step that's easy to miss — the default is not
+     permanent), and check exactly these permissions:
+     `whatsapp_business_messaging`, `whatsapp_business_management`,
+     `business_management`.
+  8. **Generate Token** → copy it immediately (Meta shows it only once).
+  9. Update `whatsapp_config`: new `access_token`, `token_issued_at =
+     now()`, `token_expires_at = NULL` — then re-verify
+     `send-whatsapp-alert` live the same way as above.
 
 ## Driver/provider WhatsApp tracking agent (extension beyond the original 7-step build order)
 
@@ -1235,7 +1266,7 @@ months of live use, not something to promise inside the pilot window itself
   Natural next steps from here: automatic/scheduled tracking requests
   (e.g. N days before deadline — deliberately not built now, manual
   button only, consistent with "suggestion, never autonomous action"),
-  something sturdier than the current tracking-code regex, and a
-  longer-lived WhatsApp access token (a Meta Business System User) so
-  this stops needing a fresh temporary token roughly every hour — a real
-  recurring cost during this build that a real pilot shouldn't inherit.
+  and something sturdier than the current tracking-code regex. The
+  longer-lived-token item that used to be listed here moved to "WhatsApp
+  (step 6, pilot path)" above — code/docs are done, pending the user's
+  manual Meta Business Suite step to actually generate and store it.
