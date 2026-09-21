@@ -581,9 +581,42 @@ tiles, and the Decision Queue in one pass.
   delay, the gap in days × daily sales = `unitsShort`, and
   `unitsShort × unitPrice` = that SKU's sales exposure. If an alternate
   warehouse has stock, the recommended transfer is
-  `min(unitsShort, availableUnits)`, costed at a flat **L45/unit** regional
-  trucking assumption (also disclosed, not hidden — replace with a real
-  quote before a real pilot).
+  `min(unitsShort, availableUnits)`, costed at a per-unit regional
+  trucking rate read from config (see "Transfer cost is now configurable"
+  below) — no longer a hardcoded constant.
+- **Transfer cost is now configurable, not hardcoded.** The per-unit
+  trucking-cost assumption used to be a flat, hardcoded **L45/unit**
+  constant (`TRANSFER_COST_PER_UNIT_LPS`) baked directly into
+  `risk-recommendation` — disclosed as a placeholder from the start, but
+  with no way to actually replace it short of a code change and
+  redeploy. Fixed the same way location already was (see "Geography:
+  configurable risk location" above): `risk_location_config` gained
+  `transfer_cost_per_unit_lps` (numeric, default `45` — preserves today's
+  exact behavior for the existing row, so this ships with zero output
+  change). `loadLocationConfig()` now selects it alongside
+  location/radius, and every use of the old constant (the per-SKU
+  `transferCostLps` calc, `transferCostAssumptionLpsPerUnit` in the
+  response) reads `location.transferCostPerUnitLps` instead;
+  `DEFAULT_LOCATION`'s fallback (used only if the config table is
+  unreachable) keeps `45` too, so a config outage degrades to old
+  behavior rather than crashing. **Named per-unit, not per-kg/pallet**:
+  the formula is `transferUnits × cost`, and `erp-inventory` items carry
+  no weight/pallet-count field today, so a per-unit model is what the
+  data actually supports — a per-kg model would need that field added to
+  every adapter first, not just this table. Onboarding a new location to
+  its own real trucking rate is now one `UPDATE`, same as
+  location/currency already were.
+  - **Verified**: migration applied and confirmed via direct query
+    (existing row now carries `45`, matching pre-migration behavior
+    exactly); redeployed function returns `ok:true` post-deploy with
+    corridor computation unaffected (confirmed live: severity `high`,
+    `expectedDelayDays: 10`). `recommendation.applicable` is currently
+    `false` for an unrelated, pre-existing reason — every item from the
+    live Excel-connected inventory has `avgDailyUnitsSold: null` (no
+    sales-velocity data in that sheet yet), which the scoring loop
+    already skipped before this change, so nothing regressed. Formula
+    correctness double-checked with a standalone arithmetic scaling
+    check across several constant values.
 - **Aggregate**: total exposure, total transfer cost, total transfer units,
   and an **ROI multiple** (`exposure ÷ transfer cost`) — this replaces the
   old mockup's fabricated "84% confidence" badge. A confidence percentage
