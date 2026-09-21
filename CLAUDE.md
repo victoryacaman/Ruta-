@@ -272,11 +272,25 @@ later is a config change, not new code.
     `tipoMovimiento.nombre === "Venta"`, trailing 30 days) — none of which
     the list endpoint returns at all. That per-SKU call is a disclosed
     N+1 cost, fine for a pilot-sized catalog (ZafraCloud's own real
-    customer profile here has ~20 SKUs), a real scaling limit for a much
-    larger one. ZafraCloud doesn't mark any warehouse as "primary" in its
-    per-item stock array, so this adapter treats the first warehouse
-    returned as the home location (`onHandUnits`) and the rest as
-    transferable alternates — a disclosed assumption, not a fact
+    customer profile here has ~20 SKUs) — bounded for larger catalogs by
+    two guardrails added afterward: a **hard cap of 50 SKUs**
+    (`ZAFRA_MAX_SKUS`) on how many get the expensive per-SKU enrichment
+    call (a simple positional cap in `sku_shortlist`/list order, not a
+    risk-based ranking — the reorder-point/sales data that would inform
+    real prioritization is exactly what this cap limits the fetching of;
+    logged via `console.warn` when it actually truncates something), and
+    running the per-SKU calls in **concurrent batches of 10**
+    (`ZAFRA_CONCURRENCY`, via `Promise.all` per batch) instead of one at a
+    time, with `zafraCloudFetch` retrying on HTTP 429 (honoring
+    `Retry-After` if sent, otherwise a short exponential backoff) so a
+    rate limit degrades gracefully instead of failing the whole request.
+    Verified with a standalone simulation of the algorithm (73 fake SKUs,
+    simulated 429s) — capped to 50, max 10 concurrent, all 50 still
+    processed after retries — since there's no live account yet to test
+    the real thing against. ZafraCloud doesn't mark any warehouse as
+    "primary" in its per-item stock array, so this adapter treats the
+    first warehouse returned as the home location (`onHandUnits`) and the
+    rest as transferable alternates — a disclosed assumption, not a fact
     ZafraCloud states.
   - **Honest caveat:** the demo adapter is proven — called directly and
     verified end-to-end. The Odoo, SAP B1, and ZafraCloud adapters are
