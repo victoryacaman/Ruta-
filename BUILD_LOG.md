@@ -634,8 +634,7 @@ the same files eventually. Also not deployed.
   (listed above) remain unfinished — this data-integrity work was built
   on top of that pass's partial code, not instead of finishing it.
 
-## 2026-09-23 — Security hardening completion: dashboard auth, remaining
-   functions, OAuth state/PKCE, webhook signatures, internal auth review
+## 2026-09-23 — Security hardening completion (dashboard auth, remaining functions, OAuth state/PKCE, webhook signatures, internal auth review)
 
 Closes out every gap the previous two passes left open, as one internally
 consistent release. Continued the existing implementation throughout —
@@ -741,3 +740,127 @@ no second authentication architecture, no restart.
   explicit instruction. The live system remains exactly as described in
   `SECURITY_AND_PILOT_BLOCKERS.md` until the deployment plan there is
   actually run.
+
+## 2026-09-23 — Documentation accuracy pass (no code changed)
+
+A full re-verification of `CLAUDE.md`, `UTOPIA_CURRENT_SPEC.md`,
+`SECURITY_AND_PILOT_BLOCKERS.md`, `PILOT_PLAYBOOK.md` (this file's own
+entries were only appended to, never rewritten, per this project's own
+standing rule for `BUILD_LOG.md`) against the actual code, correcting
+several claims that had drifted from what the repository and the live
+system actually do. No application code was modified and nothing was
+deployed as part of this pass.
+
+- **"AI-assisted" corrected to "rule-based."** Confirmed by re-reading
+  the scoring engine, the WhatsApp reply-matching regex, and a repo-wide
+  search for any AI/ML/LLM library or API call: none exists anywhere in
+  this codebase. "AI-assisted supply-chain risk intelligence" (the
+  product tagline in `CLAUDE.md`, `UTOPIA_CURRENT_SPEC.md`, and
+  `PILOT_PLAYBOOK.md`) overstated this and is now "rule-based
+  supply-chain risk intelligence," consistent with the project's own
+  long-standing "Explainable before predictive... not an ML model"
+  principle.
+- **Scoring-formula shorthand corrected.** "Storm severity × days of
+  safety stock × transfer cost" (in `UTOPIA_CURRENT_SPEC.md`'s and
+  `PILOT_PLAYBOOK.md`'s design-principles framing) was a misleading
+  compression of the real mechanism — verified directly against
+  `risk-recommendation/scoring.ts` and `index.ts`'s
+  `EXPECTED_DELAY_DAYS` mapping. Replaced with: "Utopia converts weather
+  and storm severity into an expected-delay assumption, compares that
+  delay with each SKU's days of safety stock, estimates potential unit
+  shortfall and sales exposure, and evaluates possible transfer costs."
+  The detailed "Scoring engine" section of `UTOPIA_CURRENT_SPEC.md`
+  already described the real mechanism correctly — only the shorthand
+  echoes elsewhere were wrong.
+- **Repository vs. deployed status made explicit throughout
+  `UTOPIA_CURRENT_SPEC.md`.** Added a top-level section stating the
+  general divergence (the 2026-09-22/23 security-hardening pass is
+  implemented and tested but not deployed), plus explicit "Repository
+  status" / "Production status" pairs on Persistence, WhatsApp, and the
+  driver-tracking webhook sections specifically — the capabilities whose
+  described behavior actually differs live vs. in the repo. Capabilities
+  whose behavior is identical either way (the scoring math, the WhatsApp
+  send/receive mechanics themselves) were left tagged as they were.
+- **Endpoint risk reclassified in `SECURITY_AND_PILOT_BLOCKERS.md`.**
+  `risk-recommendation`, `decisions-list`, `excel-browse`, the shipment
+  endpoints, and `risk-location-settings` were previously grouped as
+  "low risk" alongside a genuinely public endpoint (`storm-signal`).
+  Corrected: each now states plainly what it exposes (real inventory
+  shortfall/exposure figures, real decision history, real OneDrive
+  file/table metadata, real shipment PII, real operating configuration)
+  and that this requires authentication — `storm-signal` is now the only
+  endpoint described as genuinely low-risk, since it returns identical,
+  non-customer-specific data to every caller.
+- **Security-status labels mapped onto four explicit categories**
+  (Implemented / Tested / Awaiting deployment / Deployed and verified /
+  Still open) in `SECURITY_AND_PILOT_BLOCKERS.md`'s priority list,
+  replacing the previous informal "written"/"not started" language with
+  a stated definition for each label and which specific test (if any)
+  covers each item.
+- **Demonstration sequence corrected in `PILOT_PLAYBOOK.md`.** Step 5
+  previously instructed letting "a couple of live page reloads...
+  naturally seed a few genuinely fresh Decisions entries." Verified
+  against `risk_snapshots`' fingerprint-based dedup (added 2026-09-22):
+  a repeat page load with an unchanged signal increments an existing
+  row's counter rather than creating a new entry, and Decisions history
+  is actually built from `recommendation_events` (real approve/dismiss/
+  undo actions), not from snapshots alone — so "reload to seed history"
+  was never quite accurate even before that dedup existed. Replaced with
+  one explicit evaluation/refresh followed by an actual approve/dismiss
+  action, with an explanation that meaningful history comes from genuine
+  decisions, not reloads.
+- **Language-toggle claim corrected in `UTOPIA_CURRENT_SPEC.md`.** The
+  Dashboard views section claimed the Spanish/English toggle "covers
+  every static and dynamic string in the UI," directly contradicting
+  that same document's own "Planned" section two headings later (which
+  correctly listed bilingual server-side severity strings as not yet
+  built) — an internal inconsistency, not just an external one. Verified
+  directly: `corridor.reasons` (the severity explanation text rendered
+  in the dashboard's "why" panel) is generated server-side in
+  `risk-recommendation/index.ts` as hardcoded English strings and passed
+  through the dashboard's `tr()` translation layer untouched. Corrected
+  to state plainly that client-generated interface text is bilingual
+  while server-generated severity explanations remain English-only.
+- **"Permanent" WhatsApp token language corrected going forward.**
+  "Permanent (non-expiring) access token" (`UTOPIA_CURRENT_SPEC.md`)
+  replaced with "a token with no scheduled expiration; it can still be
+  revoked or invalidated" — accurate to what a Meta System User token
+  with expiration set to "Never" actually guarantees (no *scheduled*
+  expiry, not immunity from revocation). This project's own historical
+  entries above (2026-09-21 and earlier, describing the actual migration
+  as it happened) are left as originally written, per this file's
+  standing rule against rewriting history — only current-state documents
+  were corrected.
+- **Excel/OneDrive data reclassified.** `UTOPIA_CURRENT_SPEC.md`
+  described the Excel adapter's verification data as "real,
+  non-synthetic data" and "20 real inventory rows." Verified against
+  this file's own 2026-09-01 entry: the connected Microsoft account is a
+  personal account registered for building/testing this connector, and
+  `PILOT_PLAYBOOK.md`'s own "Pilot scope" section confirms no pilot
+  customer is confirmed yet. Corrected to describe this as a real,
+  live-connected integration (genuine OAuth, a genuine Microsoft
+  account, genuine Graph API calls) exercised against test/sample rows,
+  not an operating company's actual inventory — the mechanism is real,
+  the data content is not "real operational company data."
+- **Unsourced benchmark ranges removed from `PILOT_PLAYBOOK.md`.**
+  "10–20% forecast error reduction, 5–12% inventory reduction," cited as
+  "published industry benchmarks" with no actual source named, were
+  removed rather than re-sourced — no citation for these specific ranges
+  could be verified in this pass, and inventing one would have been
+  worse than removing the numbers. Replaced with guidance to find and
+  cite a real, checkable source at the time it's actually needed for a
+  prospect conversation, and to be explicit that any such figure
+  describes the industry in general, not something Utopia has itself
+  demonstrated.
+- **Claims that could not be verified either way** (carried forward,
+  not newly discovered this pass — see `UTOPIA_CURRENT_SPEC.md`'s
+  Visual design section): a code comment near the `--orange` CSS
+  variable's declaration claims genuine high-severity states
+  "reference `--orange` too," which does not match the actual CSS rule
+  as read directly; left as an application-code inconsistency, out of
+  scope to fix in a documentation-only pass.
+- **Markdown validated**: `markdownlint-cli` run against all five files;
+  all four relative links in `CLAUDE.md` (to the other four documents)
+  confirmed resolving to files that exist in this same directory. Full
+  lint output is in the task summary delivered alongside this change,
+  not reproduced here.

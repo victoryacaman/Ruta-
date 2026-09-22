@@ -7,17 +7,22 @@ security prerequisites live in `SECURITY_AND_PILOT_BLOCKERS.md`.
 
 ## Product positioning
 
-Utopia is AI-assisted supply-chain risk intelligence for Honduran
+Utopia is rule-based supply-chain risk intelligence for Honduran
 importers/distributors, built as a thin layer on top of a customer's
-existing ERP — not a replacement for it. The core mechanism: a
-transparent, rule-based score (storm/weather severity × days of safety
-stock × transfer cost) surfaces a small number of high-confidence
-recommendations, which a human approves or dismisses — the system never
-acts autonomously. This is a deliberate trust and liability choice, not
-just a UX one, and it's also the honest answer to "why not just use an
-ML model": local logistics/customs data isn't clean or API-rich enough
-yet to trust a black box, and a rule a human can audit builds more trust
-with a first pilot customer than marginal accuracy gains would.
+existing ERP — not a replacement for it. No AI/ML component currently
+influences its recommendations or message interpretation — earlier
+"AI-assisted" framing overstated what's actually implemented. The core
+mechanism: Utopia converts weather and storm severity into an
+expected-delay assumption, compares that delay with each SKU's days of
+safety stock, estimates potential unit shortfall and sales exposure, and
+evaluates possible transfer costs — surfacing a small number of
+high-confidence recommendations which a human approves or dismisses; the
+system never acts autonomously. This is a deliberate trust and liability
+choice, not just a UX one, and it's also the honest answer to "why not
+just use an ML model": local logistics/customs data isn't clean or
+API-rich enough yet to trust a black box, and a rule a human can audit
+builds more trust with a first pilot customer than marginal accuracy
+gains would.
 
 **Competitive framing:** a competing local company already offers truck-
 fleet tracking. The pitch to a prospect already familiar with that needs
@@ -47,9 +52,18 @@ to take on faith is weaker than watching it happen):
    arrive on a real phone.
 4. Reply to that message from the phone and watch the dashboard update
    with the driver's real reply.
-5. Let a couple of live page reloads during the visit naturally seed a
-   few genuinely fresh Decisions entries, rather than presenting a
-   pre-built history.
+5. Run one explicit evaluation or refresh of Command so the prospect
+   sees a real computation happen live, then actually approve or dismiss
+   the recommendation it produces (or the one from step 1) in the
+   Decisions view. **A page reload by itself does not create meaningful
+   Decisions history** — the current code deliberately dedups a repeat
+   computation of the same signal within a short window into one row
+   instead of a fresh entry (see `UTOPIA_CURRENT_SPEC.md`'s Persistence
+   section), and a real decision record only comes from an actual
+   approve/dismiss/undo action, not from the page loading. Meaningful
+   history accumulates the same way it would for a real customer: through
+   genuine decisions made over time, not through repeated reloads staged
+   for a demo.
 6. Walk through Inventory, Risks, and Integrations to show the real
    (or honestly-labeled sample) data behind each number, and Settings to
    show the location/currency are configurable per deployment, not
@@ -105,10 +119,12 @@ connector works in demo mode without any of this):
    Meta's own default template; a general proactive risk-alert template
    to a business owner is not yet built or approved.
 7. Before showing this to a real pilot customer: a real production domain
-   (non-negotiable before connecting real ERP or carrier credentials),
-   and real backend-enforced authentication (even single-tenant) before
-   any real ERP data flows through this — see
-   `SECURITY_AND_PILOT_BLOCKERS.md` for the specific list.
+   (non-negotiable before connecting real ERP or carrier credentials —
+   still open, not started), and real backend-enforced authentication
+   (even single-tenant) before any real ERP data flows through this —
+   implemented and tested in the repository as of 2026-09-23, but not
+   yet deployed; see `SECURITY_AND_PILOT_BLOCKERS.md` for the specific
+   list and deployment plan.
 8. Driver/provider WhatsApp tracking agent, an extension beyond the
    original 7-step scope — done, proven end-to-end in both directions.
 
@@ -130,11 +146,18 @@ numbers:
   prospect.
 - 1–2 concrete "we flagged X and you avoided it" stories.
 
-Treat published industry benchmarks (e.g. 10–20% forecast error
-reduction, 5–12% inventory reduction) as the expected steady-state
-outcome after 6–12 months of live use, not something to promise inside
-the pilot window itself — they're hard to prove with small SKU counts
-and short observation periods.
+Do not cite specific industry-benchmark percentages (forecast error
+reduction, inventory reduction, or similar) when discussing expected
+steady-state outcomes — no source for a specific range has been
+verified for this document, and Utopia itself has no pilot data yet to
+support any figure as its own demonstrated outcome. If a specific
+benchmark is needed for a prospect conversation, find and cite a real,
+checkable source at that time (industry report, named study) rather than
+repeating a round number from memory, and be explicit that it describes
+the industry in general, not something Utopia has proven. Any steady-
+state improvement claim is inherently hard to prove within a 4–8 week
+pilot with small SKU counts and short observation periods regardless of
+what number is used.
 
 ## ERP integration questions to resolve per prospect
 

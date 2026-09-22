@@ -1,8 +1,11 @@
 # Utopia — Supply Resilience Intelligence
 
-AI-assisted supply-chain risk intelligence for Honduran importers/
+Rule-based supply-chain risk intelligence for Honduran importers/
 distributors, built as a thin layer on top of a customer's existing ERP —
-not a replacement for it. Origin: San Pedro Sula.
+not a replacement for it. Origin: San Pedro Sula. (No AI/ML component
+currently influences recommendations or message interpretation — see the
+"Explainable before predictive" principle below. "AI-assisted" in earlier
+versions of this file overstated what's actually implemented.)
 
 **This file is now a short index.** The full documentation was reorganized
 on 2026-09-22 out of a single combined file into four focused documents,
@@ -14,11 +17,13 @@ unverified:
   Implemented but not live-validated / Demo-sample data / Planned. Read
   this first for "what does this thing currently do."
 - **[`SECURITY_AND_PILOT_BLOCKERS.md`](./SECURITY_AND_PILOT_BLOCKERS.md)** —
-  authentication status, every public endpoint's real exposure, the two
-  confirmed real gaps (Meta webhook signature validation, Microsoft OAuth
-  state handling), and the ordered list of what's required before real
-  customer data flows through this. Read this before connecting anything
-  to a real customer.
+  authentication status, every endpoint's real exposure, and the ordered
+  list of what's required before real customer data flows through this.
+  As of 2026-09-23, a full auth/OAuth-state/webhook-signature hardening
+  pass is written, tested, and committed but **not deployed** — the
+  document distinguishes what's fixed in the repository from what the
+  live system still does today. Read this before connecting anything to
+  a real customer.
 - **[`BUILD_LOG.md`](./BUILD_LOG.md)** — the full chronological history:
   what was built, what broke, what was found, how each fix was verified,
   and every earlier description that's since been superseded.

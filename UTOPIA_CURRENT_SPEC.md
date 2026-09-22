@@ -1,14 +1,18 @@
 # Utopia — Current Specification
 
-AI-assisted supply-chain risk intelligence for Honduran importers/distributors,
-built as a thin layer on top of a customer's existing ERP — not a replacement
-for it. Origin: San Pedro Sula.
+Rule-based supply-chain risk intelligence for Honduran importers/
+distributors, built as a thin layer on top of a customer's existing ERP —
+not a replacement for it. Origin: San Pedro Sula. No AI/ML component
+currently influences recommendations or message interpretation (see
+"Design principles" below); "AI-assisted" in earlier versions of this
+document overstated what's actually implemented.
 
 This document states only what the current code actually does, verified
-directly against the live dashboard file, all deployed Edge Functions, and
-the database schema (not against prior documentation's claims — see
-`BUILD_LOG.md` for the history of how each piece was built and what earlier
-docs got wrong along the way). Every capability below is tagged:
+directly against the repository's dashboard file, Edge Functions, and
+database schema, cross-checked against what is actually live where the
+two differ (not against prior documentation's claims — see `BUILD_LOG.md`
+for the history of how each piece was built and what earlier docs got
+wrong along the way). Every capability below is tagged:
 
 - **Live and verified** — real, deployed, and confirmed working against a
   live endpoint/service, not just plausible from reading the code.
@@ -18,6 +22,28 @@ docs got wrong along the way). Every capability below is tagged:
 - **Demo/sample data** — functions correctly, but the data behind it is
   synthetic, not a real customer's.
 - **Planned** — not built yet.
+
+## Repository status vs. deployed status (as of 2026-09-23)
+
+As of this date, a full authentication/authorization hardening pass —
+real Supabase Auth on the dashboard, a `pilot_authorized_emails` allowlist
+gating 15 of 17 Edge Functions, real Microsoft OAuth `state`+PKCE
+validation, real Meta webhook signature verification, and a race-safe
+rate limit — is **written, unit- and integration-tested, and committed to
+the repository, but not deployed or applied to the live Supabase
+project**. Full detail, including exactly which functions/migrations are
+affected and the deployment plan, lives in `SECURITY_AND_PILOT_BLOCKERS.md`
+and `BUILD_LOG.md`'s 2026-09-22/2026-09-23 entries.
+
+This does **not** change the tags below for capabilities whose actual
+*behavior* is identical live and in the repository (e.g. the scoring
+math, the WhatsApp send/receive mechanics) — those remain **Live and
+verified** where they always were. It does mean: every Edge Function
+that reads customer data, changes config, or sends a message currently
+requires **no authentication at all in production**, regardless of what
+the repository's code checks, until that pass is deployed. Nowhere below
+should "Live and verified" be read as "and also already authenticated in
+production" unless stated explicitly.
 
 ## Legacy names
 
@@ -46,8 +72,12 @@ not be relaxed without a deliberate conversation:
 - **Suggestion, never autonomous action.** The system recommends; a human
   approves. No purchase, transfer, or supplier action fires on its own.
 - **Explainable before predictive.** A transparent, rule-based scoring
-  function (storm severity × days of safety stock × transfer cost), not an
-  ML model.
+  function, not an ML model: Utopia converts weather and storm severity
+  into an expected-delay assumption, compares that delay with each SKU's
+  days of safety stock, estimates potential unit shortfall and sales
+  exposure, and evaluates possible transfer costs. See "Scoring engine"
+  below for the exact mechanism, verified directly against
+  `risk-recommendation/scoring.ts` and `index.ts`.
 - **Conservative alert volume on purpose.** Fewer, higher-confidence
   suggestions over catching everything.
 - **Every suggestion needs a visible "why."** The specific signals behind a
@@ -113,15 +143,25 @@ path in the function.
   denormalized data model likely needs more mapping work than currently
   written, and third-party API licensing hasn't been confirmed for a real
   target account.
-- **Excel/OneDrive adapter — Live and verified.** A genuine Microsoft
-  sign-in (delegated Graph permissions, no password ever touching this
-  dashboard), a real in-app workbook/table picker, and column resolution
-  by header name (not fixed position) so a customer's own column order
-  doesn't silently scramble data. Verified against a real connected
-  account's real workbook — first with headers-only data, then with 20 real
-  inventory rows, including a fix for a real "shows $0" bug (cost vs. price
-  field confusion). This is the only adapter that's actually been used with
-  real, non-synthetic data.
+- **Excel/OneDrive adapter — Live and verified** (the integration
+  mechanism), **test rows in a real workbook** (the data). A genuine
+  Microsoft sign-in (delegated Graph permissions, no password ever
+  touching this dashboard), a real in-app workbook/table picker, and
+  column resolution by header name (not fixed position) so a customer's
+  own column order doesn't silently scramble data — all verified against
+  a real, live Microsoft account and a real OneDrive workbook, not a
+  mock. **What "real" does not mean here:** per `BUILD_LOG.md`'s
+  2026-09-01 entry, that Microsoft account is a personal one registered
+  for building/testing this connector, not a confirmed operating
+  business's account (no pilot customer is confirmed yet — see
+  `PILOT_PLAYBOOK.md`'s "Pilot scope"). The 20 rows verified against
+  (first headers-only, then populated, including a fix for a real "shows
+  $0" bug) are test/sample inventory rows entered for verification
+  purposes, not an operating company's actual inventory. This is the only
+  adapter exercised against a real, live-connected account of any kind —
+  the other three (below) have never been tried against a live instance
+  at all — but "real account" should not be read as "real operational
+  company data."
 - **ZafraCloud adapter — Implemented but not live-validated.** Built
   directly from ZafraCloud's own published API documentation (found by
   reading the docs page's bundled JS to locate its machine-readable spec,
@@ -183,31 +223,51 @@ input:
    delay, the response says so plainly instead of inventing an alert.
 
 This math has been verified against real live weather/storm data. The
-*inventory* half of the input is real only when Excel is the connected
-provider — with the demo adapter or an unvalidated Odoo/SAP B1/ZafraCloud
-connection, the math is real but the numbers it's operating on are not yet
-proven against that customer's real data.
+*inventory* half of the input has only ever been exercised against a
+real, live-connected source (Excel/OneDrive) with test/sample rows, not
+an operating company's actual inventory — with the demo adapter or an
+unvalidated Odoo/SAP B1/ZafraCloud connection, the math is real but the
+numbers it's operating on are synthetic or entirely untested, not yet
+proven against any customer's real data.
 
-### Persistence — **Live and verified**
+### Persistence — **Live and verified** (core save/read), mixed on the fix below
 
 Every computed signal is saved (`risk_snapshots`), and every approve/
 dismiss/undo click is saved as its own event (`recommendation_events`),
-service_role-only tables. A Decisions view renders the real join of both as
-history, with a real approval-rate figure — **honest caveat, carried
-forward:** this history currently mixes real usage with this project's own
-development/testing (every page load records a snapshot, with no flag
-distinguishing a real decision from a debugging reload) — see
-`SECURITY_AND_PILOT_BLOCKERS.md` for why this needs a fix before real
-customer use.
+service_role-only tables. A Decisions view renders the real join of both
+as history, with a real approval-rate figure.
+
+- **Repository status:** fixed. `risk_snapshots` gained `environment`/
+  `computation_source` columns (classified automatically) and a
+  fingerprint-based dedup so a repeat page load increments a counter
+  instead of inserting a new row; `decisions-list` now defaults to
+  pilot-only data, adds a "decision coverage" metric, and reports which
+  scope was used. Written, unit-tested (`decisions_metrics_test.ts`), and
+  committed.
+- **Production status:** not deployed. The migration adding those
+  columns hasn't been applied, so the live system still mixes real usage
+  with this project's own development/testing on every page load, with
+  no flag distinguishing the two — see `SECURITY_AND_PILOT_BLOCKERS.md`.
 
 ### WhatsApp — mixed, template-by-template
 
 A real Meta for Developers app and a free test WhatsApp number exist. What
-"real" covers depends on which message:
+"real" covers depends on which message. **Repository status for the
+functions behind all of this (`send-whatsapp-alert`,
+`request-tracking-update`, `whatsapp-webhook`):** now require an
+authorized session (the first two) or a verified Meta signature (the
+third) in committed code — not yet deployed; the live functions remain
+open to any caller, per `SECURITY_AND_PILOT_BLOCKERS.md`. This doesn't
+change whether a message actually sends, only who's currently allowed to
+trigger it once deployed.
 
 - **`hello_world` (Meta's own generic default template) — Live and
-  verified.** Works today with a permanent (non-expiring) access token.
-  No approval needed; it's Meta's own pre-approved template.
+  verified.** Works today with a token with no scheduled expiration; it
+  can still be revoked or invalidated (a Meta Business System User token,
+  generated with expiration set to "Never" — not a guarantee against
+  revocation, and not the previous short-lived console token that broke
+  the send pipeline twice). No template approval needed; it's Meta's own
+  pre-approved template.
 - **A custom driver-tracking template (Spanish, asks a driver for a
   tracking number/ETA) — Live and verified, both directions.** Submitted
   to Meta, **approved**, and proven with a real outbound send and a real
@@ -237,10 +297,15 @@ A dashboard "Shipments" view backed by a real table, a real outbound send
 (the approved custom template above), and a real **inbound** webhook that
 matches a driver's reply back to the correct shipment and records it
 (tracking number via a simple regex heuristic, or free-text as an ETA
-note). Proven with a real phone conversation in both directions. **Security
-gap carried forward, not fixed here:** the inbound webhook does not
-validate Meta's request-signing header at all — see
-`SECURITY_AND_PILOT_BLOCKERS.md`.
+note). Proven with a real phone conversation in both directions.
+
+- **Repository status:** the signature-validation gap is fixed.
+  `whatsapp-webhook` now verifies Meta's `X-Hub-Signature-256` against
+  `whatsapp_config.meta_app_secret` before parsing anything, and adds
+  message-ID idempotency. Written and committed.
+- **Production status:** not deployed — the live webhook still accepts
+  any POST shaped like a WhatsApp delivery with no signature check at
+  all. See `SECURITY_AND_PILOT_BLOCKERS.md`.
 
 ### Dashboard views — **Live and verified**
 
@@ -250,8 +315,29 @@ storm list), Decisions, Shipments, Integrations (real live-source status,
 no logos for anything not actually built), Settings (location/radius/
 currency editor — see below), and Add tools (ERP onboarding, with the
 qualification above). Currency display (not conversion — no exchange-rate
-math anywhere) is configurable per deployment. Spanish/English toggle
-covers every static and dynamic string in the UI.
+math anywhere) is configurable per deployment.
+
+**Language toggle — corrected claim.** Client-generated interface text
+(nav labels, buttons, static copy, and dynamic sentences built from a
+translation dictionary via the dashboard's own `tr()` helper) is fully
+bilingual, Spanish/English. Server-generated severity explanations —
+`corridor.reasons`, the plain-language sentences `risk-recommendation`
+computes and the dashboard renders verbatim in the "why" panel — remain
+**English-only regardless of the toggle**, confirmed directly in the
+dashboard's own source (a comment at the render site already says this
+comes from the server in English) and in `risk-recommendation/index.ts`
+(the reason strings are hardcoded English, never localized). An earlier
+version of this document's "covers every static and dynamic string"
+claim did not draw this distinction and has been corrected here; it's
+already listed correctly under "Planned" below.
+
+**Authentication — repository status ahead of production.** As of
+2026-09-23, `index.html` and `ruta-dashboard-fixed.html` in the
+repository use a real Supabase Auth magic-link sign-in and an
+`authedFetch()` wrapper on every protected call. **The live, hosted
+dashboard has not been redeployed with this change** — it still uses the
+old shared-password `sessionStorage` gate described in
+`SECURITY_AND_PILOT_BLOCKERS.md`.
 
 ### Hosting — **Live and verified**
 

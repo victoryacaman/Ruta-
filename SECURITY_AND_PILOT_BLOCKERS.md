@@ -52,26 +52,43 @@ verification instead (state+PKCE, and Meta's own signature,
 respectively — see their own sections). The live, deployed functions are
 still exactly as open as described until redeployed.
 
-**Read-only, low risk — returns only non-sensitive computed data:**
-`storm-signal`, `risk-recommendation`, `decisions-list`, `excel-browse`
-(file/table *names* only, not contents), `risk-location-settings` (GET).
+**Read-only, genuinely low risk — no customer data, no business detail:**
+`storm-signal` only (raw weather/storm data, identical for every caller
+regardless of which customer is asking).
 
-**Read-only, real PII exposure to any anonymous caller:**
+**Read-only, but exposes real business/customer data — not "low risk":**
 
+- `risk-recommendation` returns a customer's real inventory shortfall
+  figures, sales-exposure estimates, and transfer economics — this is
+  business-sensitive operational data, not a generic computed number, and
+  requires authentication.
+- `decisions-list` returns a customer's real decision history (what was
+  approved, dismissed, or ignored, and when) — this is a record of that
+  business's own operational judgment calls and requires authentication.
+- `excel-browse` returns real OneDrive file and table *names* from the
+  connected account — metadata about a customer's actual file/folder
+  structure, not public information, and requires authentication.
+- `risk-location-settings` (GET) returns the monitored location and
+  operating configuration for a specific deployment — operational
+  configuration, not a public constant, and requires authentication.
 - `shipments-list` returns every shipment's `driver_name`, `driver_phone`,
-  and free-text driver reply content to anyone, with no gate at all.
+  and free-text driver reply content to anyone, with no gate at all — real
+  PII, requires authentication.
 - `excel-status` returns the connected Microsoft account's real email
-  address to anyone, with no gate at all.
+  address to anyone, with no gate at all — requires authentication.
 
-**Write-capable, no auth, real side effects:**
+**Write-capable, no auth, real side effects — operational settings and
+shipment endpoints both require authentication:**
 
 - `risk-location-settings` (POST) — anyone can change the monitored
-  location/currency. Low blast radius (no credential exposure), but also
-  has a real input-validation gap: `relevantRadiusKm` has no bounds check
-  at all (a negative or absurd value is accepted as-is), and
-  `currencyCode`/`currencySymbol` are only length-capped, not validated
-  against a real currency-code list.
-- `shipments-create` — anyone can create shipment records.
+  location/currency, an operational-configuration endpoint that requires
+  authentication, not a public form. Also has a real input-validation
+  gap: `relevantRadiusKm` has no bounds check at all (a negative or
+  absurd value is accepted as-is), and `currencyCode`/`currencySymbol`
+  are only length-capped, not validated against a real currency-code
+  list.
+- `shipments-create` — anyone can create shipment records; shipment data
+  requires authentication the same as `shipments-list` above.
 - `recommendation-action` — anyone can log approve/dismiss/undo events
   against any real `risk_snapshots.id` they can guess or read from
   `decisions-list`.
@@ -197,54 +214,78 @@ None of this is live yet — the migration hasn't been applied.
 ## Everything required before real customer data flows through this
 
 In priority order, based on actual exposure (not just theoretical risk).
-Status as of 2026-09-22 noted per item — **"written" means committed to
-the repo, not deployed; the live system still behaves as described
-above in every case.**
+Status as of 2026-09-23, distinguishing four things per item:
+
+- **Implemented** — the code exists in the repository.
+- **Tested** — covered by a passing automated unit or integration test
+  (not just "should work from reading the code").
+- **Awaiting deployment** — implemented (and, where noted, tested), but
+  not yet applied/deployed to the live Supabase project.
+- **Deployed and verified** — live, and confirmed working against the
+  real deployed system.
+- **Still open** — not implemented at all.
+
+**None of items 1–6 below are "Deployed and verified" — every one of
+them still describes the live system's actual, unfixed behavior until
+the deployment plan in `BUILD_LOG.md`'s 2026-09-23 entry is run.**
 
 1. **Fix the Meta webhook signature check** — the one concrete, currently-
    exploitable gap that lets an outside party write fabricated data into
-   a real customer's shipment records. *Written — `whatsapp-webhook` now
-   calls the existing `verifyMetaSignature` verifier and rejects before
-   parsing the body.*
+   a real customer's shipment records. **Implemented and tested, awaiting
+   deployment** — `whatsapp-webhook` now calls the existing
+   `verifyMetaSignature` verifier and rejects before parsing the body;
+   covered by `crypto_test.ts` (valid/wrong-secret/tampered-body/missing-
+   header cases).
 2. **Real backend-enforced authentication** in front of the dashboard and
    the write-capable Edge Functions — Supabase Auth, checked against a
    `pilot_authorized_emails` allowlist, replacing the plain-JS shared
-   password. *Written for all 15 authenticated functions server-side, and
-   for the dashboard itself: `index.html` now does a real email magic-link
-   sign-in, and `ruta-dashboard-fixed.html` bootstraps a real session,
-   attaches it as a bearer token on every protected call via a new
-   `authedFetch()`, handles 401 (session invalid → sign back in) and 403
-   (real session, not on the allowlist → banner), and has a working
-   sign-out button.*
+   password. **Implemented and tested, awaiting deployment** — written
+   for all 15 authenticated functions server-side, and for the dashboard
+   itself: `index.html` now does a real email magic-link sign-in, and
+   `ruta-dashboard-fixed.html` bootstraps a real session, attaches it as
+   a bearer token on every protected call via a new `authedFetch()`,
+   handles 401 (session invalid → sign back in) and 403 (real session,
+   not on the allowlist → banner), and has a working sign-out button;
+   covered by a 10-check Playwright test (`dashboard_auth_test.js`).
 3. **Store and check the OAuth `state` parameter for real** before a
    second Microsoft account is ever connected through this flow.
-   *Written — `excel-oauth-start` requires auth and generates real
-   state+PKCE; `excel-oauth-callback` now validates and atomically
-   consumes it, PKCE included.*
+   **Implemented and tested, awaiting deployment** — `excel-oauth-start`
+   requires auth and generates real state+PKCE; `excel-oauth-callback`
+   now validates and atomically consumes it, PKCE included; the PKCE
+   math is covered by `crypto_test.ts` against RFC 7636's own test
+   vector. The state-consumption race logic itself has no live-database
+   test (would require a deployed project) — see "claims that could not
+   be verified" in the task summary for this pass.
 4. **Add rate limiting** to every write-capable endpoint, especially
    `request-tracking-update` and `send-whatsapp-alert` (both spend the
    project's real, limited WhatsApp send allowance and could be used to
-   harass a real phone number if abused) and `whatsapp-webhook`. *Written
-   for `request-tracking-update` (60-min per-shipment cooldown) and
+   harass a real phone number if abused) and `whatsapp-webhook`.
+   **Implemented and tested, awaiting deployment** — written for
+   `request-tracking-update` (60-min per-shipment cooldown) and
    `send-whatsapp-alert` (10/hour/user), and made race-safe (a Postgres
    advisory-lock RPC replaces the old check-then-insert, closing a TOCTOU
-   gap two near-simultaneous requests could have slipped through);
+   gap two near-simultaneous requests could have slipped through), with
+   the pure counting/cooldown logic covered by `rateLimit_test.ts`;
    `whatsapp-webhook` doesn't need a caller-side rate limit now that
-   item 1 (signature verification) gates it instead.*
+   item 1 (signature verification) gates it instead.
 5. **Tighten `risk-location-settings`'s input validation** (bounds-check
-   `relevantRadiusKm`, whitelist `currencyCode`). *Written.*
+   `relevantRadiusKm`, whitelist `currencyCode`). **Implemented,
+   awaiting deployment** — no dedicated unit test for this specific
+   validation exists.
 6. **Separate real usage from test/development data** — add an
    environment or `is_test` marker to `risk_snapshots`, or run a real data
    wipe as part of onboarding, before quoting approval-rate figures to a
-   real pilot customer. *Written (see the Demo-data-separation section
-   above), pending the migration actually being applied.*
+   real pilot customer. **Implemented and tested, awaiting deployment** —
+   see the Demo-data-separation section above; covered by
+   `decisions_metrics_test.ts`; pending the migration actually being
+   applied.
 7. **A real production domain** — not strictly a security fix, but the
    project's own build order already treats this as a pilot prerequisite
    alongside authentication, and it's the natural point to also add TLS/
    access controls a subdomain-of-GitHub-Pages setup doesn't give you.
-   *Not started — a real domain purchase/DNS step, not code.*
+   **Still open** — a real domain purchase/DNS step, not code.
 8. **Formal Meta Business verification**, if/when a general risk-alert
    template (proactive push to a business owner, not the driver-tracking
    flow) is built — separate from, and in addition to, the driver-
-   tracking template already approved. *Not started — no such template
-   exists yet, per `UTOPIA_CURRENT_SPEC.md`.*
+   tracking template already approved. **Still open** — no such template
+   exists yet, per `UTOPIA_CURRENT_SPEC.md`.
