@@ -1,0 +1,461 @@
+# Utopia — Build Log
+
+Chronological record of what was built, what broke, what was found, and how
+each thing was verified. This is the historical record moved out of the old
+combined `CLAUDE.md` — nothing here is deleted, only relocated and organized
+by date. Current-state claims live in `UTOPIA_CURRENT_SPEC.md`; this file is
+the "how we got there," including superseded descriptions that were true at
+the time and are no longer current. Dates are commit dates from the repo's
+own history. Operational identifiers (access codes, phone numbers, WABA/
+phone-number IDs, template IDs, Supabase project references) are redacted
+here even where they appeared in the original notes, per this project's
+credential-handling standard — see `SECURITY_AND_PILOT_BLOCKERS.md`.
+
+## 2026-08-26 — Project seed and steps 2–3
+
+- Repo seeded under the original name "RUTA": project charter plus a static
+  reference-mockup dashboard.
+- **Step 2, signal ingestion.** Open-Meteo (7-day precipitation/wind/
+  weather-code forecast) confirmed to work directly from a browser (sets
+  `Access-Control-Allow-Origin: *`). NOAA/NHC's `CurrentStorms.json` does
+  **not** set any CORS header at all — confirmed empirically, not assumed
+  — so a browser can't fetch it directly. Fixed with a relay Edge Function,
+  `storm-signal`, deployed to a **new, dedicated Supabase project**
+  (deliberately separate from an existing personal-ops project in the same
+  account, so a future paying pilot's data never mixes with unrelated
+  infrastructure — project reference redacted here per this project's own
+  standard).
+- **Step 3, ERP connector, demo mode.** A generic `erp_config` table (one
+  row, `provider` switch) plus a demo adapter and first-draft Odoo/SAP B1
+  adapters, built against each system's documented external API shape
+  without a live account to test against — a deliberate choice: picking a
+  real pilot customer/ERP is a business decision, not a coding task, so the
+  connector was built generic rather than blocking on that decision.
+
+## 2026-08-27 — Scoring engine, persistence, WhatsApp, hosting, rebrand
+
+- **Step 4, scoring engine.** First version of `risk-recommendation`:
+  combines the weather/storm signal with ERP inventory into real exposure/
+  transfer-cost/ROI numbers, replacing the mockup's sample Decision Queue
+  data. Explainable-rule design from the start (no ML), per the project's
+  non-negotiable principles.
+- **Step 5, persistence.** `risk_snapshots` (one row per computation) and
+  `recommendation_events` (one row per approve/dismiss/undo) added, both
+  service_role-only. A new `recommendation-action` function writes events;
+  it can only append a row referencing an existing snapshot — it cannot
+  read, modify, or fire any purchase/transfer action itself, enforcing
+  "suggestion, never autonomous action" at the infrastructure level.
+- **Step 6, WhatsApp (pilot/fast path).** A real Meta for Developers app
+  and a free test WhatsApp number set up through Meta's own console (a
+  human login step, not something scriptable from this repo).
+  `whatsapp_config` (service_role-only) holds the test number's account
+  identifiers and access token — all redacted from this log. `send-
+  whatsapp-alert` calls the real WhatsApp Cloud API using the stored
+  token. **Real constraint documented from day one:** WhatsApp's Cloud API
+  only allows a pre-approved template or free-form text within a 24-hour
+  post-reply window — not arbitrary proactive text.
+- **Hosting prep.** GitHub Pages targeted as the host, plus a lightweight
+  client-side sign-in gate (`index.html`, a shared password constant —
+  value redacted here — setting a `sessionStorage` flag that a guard
+  script in the dashboard checks). Documented from the start as a
+  deterrent, not real access control, appropriate only while the dashboard
+  shows demo data to a small preview audience.
+- **Rebrand: RUTA → Utopia.** Display name and color palette changed
+  (repo/filenames/infra names deliberately left as-is — see the Legacy
+  Names table in `UTOPIA_CURRENT_SPEC.md`). New monochrome dark theme,
+  with `--orange` (`#ff4444` at the time) framed as reserved strictly for
+  genuine danger/urgency signals. **This framing changed later — see
+  2026-09-07 below; it is not the current state.**
+- **Live-proof pass.** The click-to-chat WhatsApp number switched from a
+  placeholder to the real verified test recipient. The Approve button
+  stopped being a fire-and-forget toast — clicking it now visibly disables
+  and relabels itself, backed by the real persistence write from step 5.
+  The notification bell switched from decorative to reading real data.
+  Every still-unbuilt sidebar item was reworded from "not wired in this
+  reference build" (reads as broken) to explicit roadmap framing — nothing
+  was actually built out in this pass, only the honesty of what the copy
+  claimed.
+- **Geography generalization.** Both `storm-signal` and the scoring engine
+  originally hardcoded one port's coordinates. Replaced with a
+  `risk_location_config` table (one row: name/lat/lon/radius), read
+  server-side by both functions, falling back to the original port's
+  coordinates if the table is ever empty/unreachable. Onboarding a new
+  location became one `UPDATE`, not a code change. Disclosed caveat at the
+  time (still true): the storm-relevance radius was calibrated for a
+  coastal/port location; an inland deployment's real exposure leans more
+  on the weather signal than on distance to a tropical system, and this
+  hasn't been tuned per-location yet.
+- **Driver/provider WhatsApp tracking agent, extension beyond the original
+  build order.** A new `shipments` table plus four new Edge Functions:
+  `shipments-list`, `shipments-create`, `request-tracking-update` (sends
+  the tracking-request template, manual-button-triggered only), and
+  `whatsapp-webhook` — the project's first **inbound** surface. GET handles
+  Meta's verification handshake; POST matches an inbound reply's phone
+  number against the most recently-contacted shipment and records it.
+  Always returns HTTP 200 even on internal errors (required so Meta
+  doesn't disable the webhook after repeated failures) — errors are
+  logged server-side instead.
+- **Custom template submission.** A driver-tracking template (Spanish,
+  two body variables) submitted via a direct Graph API call. Two real
+  findings along the way: the stored access token had already expired
+  (the original short-lived console token, not yet the permanent one —
+  see 2026-08-28/2026-09-21 below) — fixed by generating a fresh one; and
+  the first template draft was rejected because it ended in a variable
+  placeholder (Meta disallows a variable as the first or last thing in a
+  template body) — fixed by adding trailing fixed text.
+- **Webhook subscription bug, found and fixed same day.** After
+  registering the callback URL in Meta's console and confirming (via
+  logs) that Meta's own verification GET succeeded, inbound messages
+  still weren't arriving. Root cause, found via the WhatsApp Business
+  Account's subscribed-apps list: the account was subscribed to Meta's
+  own internal test app, not this project's app — verifying a callback
+  URL and subscribing a specific account to send that app events are two
+  separate steps, and the console's guided setup only did the first one.
+  Fixed with a dedicated function that calls the subscribe endpoint
+  directly; idempotent, safe to re-run.
+
+## 2026-08-28 — Token lifetime correction, Decisions view, honesty pass
+
+- **Token lifetime correction.** The originally-issued short-lived WhatsApp
+  token was found to expire in roughly **one hour**, not the ~24 hours
+  first assumed — corrected in the documentation of the time (this whole
+  problem class was later closed for good by the permanent-token migration
+  on 2026-09-21, below).
+- **Decisions view.** A new `decisions-list` function joins `risk_snapshots`
+  with the latest `recommendation_events` row per snapshot (so an
+  approve-then-undo correctly reverts to "no action"), plus a real
+  approval-rate figure computed server-side. Verified against real data
+  from that day's own testing (a specific snapshot/approval count was
+  recorded at the time; since superseded by more testing — see the
+  current caveat in `UTOPIA_CURRENT_SPEC.md`/`SECURITY_AND_PILOT_BLOCKERS.md`
+  rather than quoting a now-stale number here).
+- **Honesty pass, prompted by an external pilot-readiness review.** The
+  review correctly flagged that the Decisions history reads as real
+  customer engagement but was actually this project's own development
+  testing — fixed by adding an explicit caveat directly in the view's
+  intro copy (the recording behavior itself was already correct per step
+  5's design; the problem was that nothing disclosed the data's real
+  source). Two real copy overclaims fixed in the same pass: a WhatsApp
+  preview card claimed a message had already been auto-delivered to a
+  named recipient at a specific time — that never happens (the preview is
+  user-initiated via a click-to-chat link) — reworded to describe it
+  accurately; and roadmap-placeholder copy claimed unqualified "real
+  WhatsApp send" for unbuilt items, overstating what was live given the
+  driver-tracking template's approval was still pending at that point.
+
+## 2026-08-29 — Driver-tracking template approved, proven end-to-end
+
+The custom driver-tracking template was **approved** by Meta after review.
+With approval in hand, `request-tracking-update` was called against a real
+test shipment; WhatsApp accepted the send with a real message ID, and the
+real recipient confirmed the message arrived with the correct driver name
+and shipment description filled in. Combined with the earlier-proven
+inbound path, this closed the loop as fully proven in both directions —
+not simulated, human-confirmed on both ends of a real conversation.
+
+## 2026-08-30 — Prospect-presentation pass; Inventory, Integrations, Settings, Add tools, Risks views
+
+An external checklist for showing the build to an actual pilot prospect
+flagged several real issues, fixed the same day:
+
+- Internal build jargon ("build order step 3," "pending a named pilot,"
+  "roadmap," a Meta template-approval status string) removed from every
+  user-visible string, reworded toward what a prospect actually needs
+  ("connecting your ERP is a configuration step, not new engineering" —
+  turning an honesty note into a selling point; **note: `UTOPIA_CURRENT_SPEC.md`
+  now qualifies this claim rather than repeating it unchanged, since it
+  hasn't been tested against a real Odoo/SAP B1/ZafraCloud account**).
+- A real wording bug: internal severity values ("medium") were printed
+  raw right next to a differently-worded badge ("ELEVATED") in the same
+  sentence. Fixed with one shared label helper used everywhere severity
+  appears in a sentence.
+- Awkward literal "(s)" pluralization fixed with a proper singular/plural
+  helper.
+- A fabricated "View all 6" link and an unbacked "4" notification badge —
+  neither had a real list of 6 or a real count of 4 behind it — removed;
+  the link reworded to "View all cases" with an honest one-line disclosure
+  that this build only ever surfaces the single highest-priority
+  recommendation live. **Confirmed still current: neither the old numbers
+  nor any replacement fake count exist in the code today.**
+- A hard-coded date string that never changed, now set from the real
+  current date on load.
+- **Mobile layout bug, reproduced then fixed.** The live-data mode banner
+  collapsed into an unreadable narrow column on phone-width viewports
+  (confirmed via a before/after screenshot at a specific mobile viewport
+  size). Root cause: missing `min-width:0`/`flex-wrap` on the banner's
+  flex children. Fixed with a mobile media query stacking the banner
+  vertically.
+- **Real bug: the sign-in redirect used a relative path**, which resolves
+  to whatever file happens to share the same folder — confirmed as the
+  cause of a real reported case where an emailed copy of the dashboard,
+  opened next to an unrelated project's own `index.html`, silently
+  redirected there instead. Fixed by hardcoding the absolute hosted URL as
+  the redirect target. The underlying practice fix: present only the
+  hosted link, never the raw HTML file — emailing/downloading it is what
+  exposes this failure mode (and hands over internal endpoint details) in
+  the first place.
+- **Cleared all development test data** before any prospect would see it
+  — both test shipment records and that day's `risk_snapshots`/
+  `recommendation_events` rows. Deliberately decided against pre-seeding
+  "clean" replacement sample data — the plan instead is proving the
+  product live, in person, letting a couple of real page reloads during
+  an actual visit naturally seed a few genuinely fresh Decisions entries.
+- **Inventory view built** — the previously-placeholder nav item now
+  renders the ERP connector's real output: summary strip plus a per-SKU
+  row (on-hand vs. reorder point, days of safety stock, unit price,
+  alternate-warehouse availability). Verified headless with mocked data
+  (specific arithmetic check passed) and confirmed live against the
+  deployed connector. Called "the single most important placeholder to
+  have fixed before showing anyone this build."
+- **Integrations, Settings, Add tools built** — Integrations lists only
+  real live data sources (no logos for things never built). Settings
+  gained a real, safe config editor for location/lat/lon/radius via a new
+  `risk-location-settings` function — deliberately **not** editable from
+  this page: `erp_config`/`whatsapp_config`, both of which hold real
+  credentials, stay read-only-status-only here; a write path to those
+  through an unauthenticated public form would be a real vulnerability
+  regardless of demo context — a deliberate security call. Add tools
+  describes all three non-Excel adapters honestly, with Excel getting a
+  real "Connect with Microsoft" button since it never collects a
+  credential at all.
+- **Risks view built** — the last placeholder nav item. `risk-recommendation`
+  was already computing the full 7-day weather breakdown internally but
+  only ever returning a count; fixed to also expose the full per-day
+  detail, purely additive, no change to the severity computation itself.
+
+## 2026-08-31 — Spanish/English language toggle
+
+A flat exact-string dictionary plus a separate helper for dynamic/
+interpolated sentences, covering all 8 views; a `MutationObserver` re-
+applies translation on later DOM changes so no render site needs a manual
+call. Found and fixed during testing: the toggle button was originally
+placed in the topbar, which gets destroyed on every view navigation
+(each sub-view replaces the main content wholesale) — moved to the
+sidebar, which is only ever reset-and-rebuilt by the toggle itself, never
+replaced wholesale. **Known limitation, disclosed then and still current:**
+server-side severity-reason strings from the scoring engine stay in
+English regardless of the toggle — scoped out of this pass.
+
+## 2026-09-01 — Excel/OneDrive connector goes live
+
+- Made the Excel adapter real: a genuine Microsoft Entra ID app
+  registration (created by the user, no tool can create one), delegated
+  Graph permissions (`Files.Read`, `offline_access`, `User.Read`), a new
+  `excel_oauth` table, and three Edge Functions (`excel-oauth-start`,
+  `excel-oauth-callback`, `excel-status`). The OAuth `state` parameter was
+  documented at the time as "a basic round-trip sanity check, not stored
+  and compared server-side" — **this description has since been found to
+  be inaccurate: the callback does not read `state` at all, providing zero
+  protection rather than a "basic" one. See `SECURITY_AND_PILOT_BLOCKERS.md`
+  for the corrected finding.**
+- Fixed Command/Signal Watch only recognizing `odoo`/`sap_b1` as "real ERP
+  connected," so a genuinely-connected Excel source still showed
+  "unavailable" until added.
+- **Real pilot connection, verified live end-to-end.** The Azure app was
+  registered under a personal Microsoft account rather than an
+  institutional one (Azure Portal kept routing sign-in to an unrelated
+  organizational SSO session even in fresh browsers — fixed by forcing
+  Microsoft's home-realm-discovery to the personal/consumer identity
+  provider via a specific query parameter on the Azure Portal URL). Real
+  sign-in completed; the first live inventory call 404'd — the actual
+  OneDrive file had landed with a double file extension (Excel appended
+  its own on top of one already typed in the save dialog), and the table
+  name didn't match what was configured. Root-caused with a temporary
+  diagnostic function (listing OneDrive contents/tables, no tokens
+  returned) rather than guessing further; config corrected; confirmed
+  working with headers-only data. That diagnostic function has since been
+  disabled (returns a fixed inert response) since there's no tool access
+  to delete an Edge Function outright — flagged for manual deletion.
+- **Workbook/table picker built**, so a real user connecting without an
+  engineer in the loop has a way to see and fix a mismatch themselves
+  rather than silently landing on "connected" with wrong data. New
+  `excel-browse` (lists files/tables) and `excel-select-workbook` (re-
+  verifies the choice against Microsoft Graph before saving) functions;
+  `erp_config` gained a stable Graph drive-item id field so a rename or a
+  double-appended extension doesn't break the connection again. Verified
+  via direct calls against the real connected account, and a headless-
+  browser pass covering the happy path and several failure states.
+
+## 2026-09-07 — Visual design polish pass
+
+Specific execution issues found by actually screenshotting the rendered
+dashboard (not guessed from the CSS):
+
+- **`--orange` changed from a full-alarm red (`#ff4444`) to a calm amber.**
+  This directly supersedes the 2026-08-27 rebrand's framing of the same
+  variable as "reserved strictly for genuine danger" — by this point it
+  was clear the variable was actually styling routine, every-load
+  informational states (a demo-data banner, a below-reorder flag), which
+  read as needlessly alarming at that intensity for something that isn't
+  an error. Genuine high-severity states were intended to use their own
+  separately-hardcoded red, unaffected by this change — **verified
+  directly against the current CSS for this documentation pass: that
+  separation does hold in the actual rule (`.severity-high`/`.tag-urgent`
+  use an independently-hardcoded color, not the `--orange` variable),
+  though a code comment near the `--orange` declaration claims those
+  states "reference `--orange` too," which does not match the actual CSS
+  rule — an inconsistency between a comment and the code it describes,
+  not a behavior bug. Not corrected here since it's an application-code
+  comment, out of scope for this documentation pass.**
+- Elevation scale widened (card/border color tokens adjusted) so cards
+  read as distinct surfaces instead of flattening into the near-black
+  page background.
+- A real inconsistency fixed: one form's inputs were unstyled browser-
+  default white fields while another view's were already dark-themed;
+  unified with one global input/select style rule.
+- Metric-card accent colors made value-driven instead of hardcoded by
+  position (a zero-risk-meaning timestamp card had been hardcoded to look
+  alarming regardless of its actual value).
+
+## 2026-09-12 — Advisor review: pilot-validation questions and adapter gaps
+
+A review meeting with a business advisor raised validation questions
+(captured here as historical record — the live, current version of this
+content lives in `PILOT_PLAYBOOK.md`) and surfaced concrete technical
+gaps in the already-built adapters:
+
+- SAP B1 data is denormalized in ways the current adapter's field mapping
+  may not fully account for — not yet revisited against a real instance.
+- Neither the Odoo nor SAP B1 adapter has confirmed that a target
+  company's actual license tier permits third-party API integration at
+  all — assumed, not checked.
+- The Odoo adapter remains untested against any live instance.
+- **SAP Integration Suite clarified as a non-gap**, following up on the
+  advisor's "does it actually connect properly" concern: SAP's
+  Integration Suite is a separate enterprise iPaaS product typically
+  paired with larger SAP landscapes, not something a typical SAP Business
+  One customer already has. The existing adapter's direct use of SAP B1's
+  own documented Service Layer REST API is SAP's correct, official,
+  first-party integration method for SAP B1 specifically — not a
+  workaround Integration Suite would replace. Requiring it on top would
+  likely add unnecessary cost/complexity for a prospect. One legitimate
+  future nuance, not acted on: a prospect running a bigger SAP landscape
+  with an IT policy requiring integrations to go through a governed layer
+  could make this relevant later — a question for that prospect's IT
+  team if and when it's real.
+
+## 2026-09-16 — Inventory polling, Excel column mapping, currency, cost/price bug
+
+- **Auto-refresh added to the Inventory view** (previously fetched once
+  per load) after a real gap was found directly: editing the connected
+  Excel workbook produced no visible change until a manual refresh click.
+  Fixed with a 25-second poll, paused while the tab is hidden, and
+  properly cleared on navigating away — deliberately scoped to Inventory
+  only, since recomputing the full scoring engine on the same cadence
+  would mean unnecessary repeated calls to the external weather/storm
+  APIs for data that doesn't need sub-minute freshness.
+- **Real onboarding trap found and documented:** Microsoft Graph's table
+  API only recognizes an actual Excel Table object (Insert → Table), not
+  cells manually styled to merely look like one — confirmed by hitting
+  exactly this with a real user's new sheet.
+- **Real second bug in the same test, more serious:** once a sheet *was*
+  recognized as a table, its data came through scrambled — a $100 "unit
+  cost" that was actually a reorder level, a warehouse "location" that
+  was actually a dollar total, and so on. Root cause: the adapter read
+  columns by fixed position, assuming one exact documented column order,
+  while the real user's sheet had different columns in a different order.
+  Fixed by reading the table's real header row and resolving each field
+  by header-name matching (case/punctuation/spacing-insensitive) instead
+  of position; a field with no matching header is left honestly empty
+  rather than guessing from an unrelated column. Verified against the
+  real workbook: all rows mapped correctly on a spot check.
+- **Currency made configurable.** Every monetary value had been hardcoded
+  to Lempira formatting, mislabeling numbers for any business pricing in
+  a different currency. This is a display-label fix only — no exchange-
+  rate conversion exists or is intended; the source data already reports
+  costs in whatever currency that business uses. `risk_location_config`
+  gained currency code/symbol columns (defaulted to match existing
+  behavior); Settings gained a preset-plus-custom currency field.
+- **Follow-up bug, found right after the header-name fix:** the dashboard
+  still showed $0 for every item and for the inventory-value total, even
+  though the header-name fix had correctly resolved the underlying cost
+  field server-side. Root cause: every adapter has always returned two
+  distinct money fields (cost basis vs. sale/list price), but the
+  dashboard only ever read the sale-price field for both the per-row
+  stat and the inventory-value summary — and this particular real user's
+  sheet had no "unit price"/"selling price" column at all, only cost, so
+  the sale-price field correctly (honestly) resolved to zero, masking
+  real data sitting unused in the cost field. Fixed by switching both
+  displays to the cost field, which is also the conceptually correct
+  field for an "inventory value" metric under standard accounting
+  regardless of any particular customer's column naming. The scoring
+  engine's own use of sale price for sales-exposure math was correct as-
+  is and left unchanged (a lost sale is properly valued at sale price,
+  not cost). Verified via a direct comparison against the live connector
+  response and a headless-browser pass with data shaped like this user's
+  real sheet.
+
+## 2026-09-18 — ZafraCloud adapter built, verification deliberately deferred
+
+- **Adapter built** from ZafraCloud's own public developer documentation
+  (the docs page is a JS shell; its real machine-readable spec was found
+  by reading the page's own bundled JS to locate where it's actually
+  served from — not guessed or brute-forced). A real ZafraCloud contact
+  answered technical questions directly, confirming the public API
+  exists, uses Bearer auth, and that sandbox access requires already
+  being a paying customer.
+- **Real cost decision, recorded rather than acted on:** getting a token
+  to actually test the adapter against a live account costs real money
+  (a one-time integration fee plus a recurring monthly plan, quoted
+  directly by a ZafraCloud sales representative — figures kept in
+  `PILOT_PLAYBOOK.md`, not repeated here). Decision: don't spend that
+  money yet — there's no confirmed ZafraCloud-using prospect lined up,
+  and paying to verify a connector nobody has asked for yet would repeat
+  the same mistake the SAP Integration Suite question above already
+  warned against. Same posture as Odoo/SAP B1: built from a real,
+  documented contract, deliberately left unverified until an actual
+  prospect on that system exists.
+
+## 2026-09-21 — Permanent WhatsApp token; ZafraCloud scaling guardrails; configurable transfer cost
+
+- **WhatsApp token migrated to a permanent Meta Business System User
+  token.** The original console-issued token had already been confirmed
+  short-lived in practice (roughly one hour, not the ~24h first assumed —
+  see 2026-08-28 above) and had broken the send pipeline more than once.
+  Replaced by generating a System User token with expiration set to
+  "Never" in Meta Business Suite (a real, free, standard Business Manager
+  feature — confirmed against Meta's own docs before doing it, no paid
+  tier or business verification needed for this specific step). Real
+  friction along the way: a mandatory two-factor-authentication gate on
+  the admin's personal account blocked initial access from a new browser
+  (resolved by completing 2FA, after some initial confusion about which
+  settings tab actually holds that option); and this business had already
+  hit Meta's cap of one admin-role System User account, so the existing
+  one was reused rather than creating a new one (the cap is on accounts,
+  not on tokens generated from one). `send-whatsapp-alert`'s error
+  handling was also updated to treat Meta's "invalid/expired token" error
+  code as a genuinely-wrong-credential signal now that expiry shouldn't
+  happen on its own, rather than a routine, expected occurrence. **Verified
+  for real**: called live, returned success, and a real message was
+  confirmed arriving on the verified test number.
+- **ZafraCloud adapter scaling guardrails added**, ahead of any real
+  account to test against: a hard cap on how many SKUs get the expensive
+  per-SKU enrichment call, that work run in concurrent batches instead of
+  one at a time, and automatic retry-with-backoff on HTTP 429 so a rate
+  limit degrades gracefully. Verified with a standalone simulation
+  (synthetic SKUs, simulated 429 responses) rather than a live account,
+  since none exists yet.
+- **`risk-recommendation`'s per-unit trucking-cost assumption made
+  configurable.** Previously a flat hardcoded constant, disclosed as a
+  placeholder from the start but only replaceable via a code change and
+  redeploy. `risk_location_config` gained a numeric column for it
+  (defaulted to match the prior hardcoded value, so this shipped with
+  zero output change); the scoring engine now reads it from config the
+  same way location/currency already were. Verified: the migration was
+  confirmed applied with the expected default value, the redeployed
+  function was confirmed still computing correctly end-to-end against
+  live weather data, and the arithmetic itself was checked against
+  several different constant values in isolation. (`recommendation.
+  applicable` was `false` at verification time for an unrelated, pre-
+  existing reason — the connected inventory source had no sales-velocity
+  data for any item, which the scoring loop already skipped before this
+  change.)
+
+## 2026-09-22 — Documentation reorganization
+
+The single combined `CLAUDE.md` covering the entire project history above
+was split into this file plus `UTOPIA_CURRENT_SPEC.md`,
+`SECURITY_AND_PILOT_BLOCKERS.md`, and `PILOT_PLAYBOOK.md`, cross-checked
+against the live code rather than carried forward as previously written.
+See the task summary delivered alongside this change for the full list of
+corrections made and claims that could not be confirmed either way.
