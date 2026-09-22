@@ -9,7 +9,8 @@ versions of this file overstated what's actually implemented.)
 
 **This file is now a short index.** The full documentation was reorganized
 on 2026-09-22 out of a single combined file into four focused documents,
-each cross-checked against the live code rather than carried forward
+with a fifth (the deployment runbook) added 2026-09-23 — each
+cross-checked against the live code rather than carried forward
 unverified:
 
 - **[`UTOPIA_CURRENT_SPEC.md`](./UTOPIA_CURRENT_SPEC.md)** — what's actually
@@ -30,10 +31,16 @@ unverified:
 - **[`PILOT_PLAYBOOK.md`](./PILOT_PLAYBOOK.md)** — product positioning,
   the demonstration sequence, discovery questions, pilot scope, success
   metrics, and per-ERP integration questions to resolve with a prospect.
+- **[`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md)** — the exact,
+  ordered steps to take the written-but-undeployed security-hardening
+  pass live: preconditions, release sequence, production smoke tests,
+  rollback plan, and a verification record. Read this before running any
+  deployment — it's the actual plan, not just a narrative description of
+  one.
 
 ## Non-negotiable design principles
 
-These constrain every capability described in the four files above and
+These constrain every capability described in the five files above and
 should not be relaxed without a deliberate conversation:
 
 - **Suggestion, never autonomous action.** The system recommends; a human
@@ -48,9 +55,12 @@ should not be relaxed without a deliberate conversation:
 
 ## Rules for whoever (human or AI) works on this next
 
-- Treat the four documents above as a record of claims, not proof the
+- Treat the five documents above as a record of claims, not proof the
   implementation matches — verify against the actual code before trusting
   or repeating a claim, the same standard this reorganization was held to.
+- Never describe committed-but-undeployed code as live, and never
+  redeploy anything by running `DEPLOYMENT_RUNBOOK.md` without the
+  human owner's explicit go-ahead for that specific release.
 - Never expose credentials, tokens, private phone numbers, passwords,
   Supabase project references, Meta account identifiers, or other personal
   infrastructure identifiers in any of these documents — redact, don't

@@ -123,8 +123,10 @@ connector works in demo mode without any of this):
    still open, not started), and real backend-enforced authentication
    (even single-tenant) before any real ERP data flows through this —
    implemented and tested in the repository as of 2026-09-23, but not
-   yet deployed; see `SECURITY_AND_PILOT_BLOCKERS.md` for the specific
-   list and deployment plan.
+   yet deployed (the dashboard's own sign-in is already live; the
+   backend functions are not); see `SECURITY_AND_PILOT_BLOCKERS.md` for
+   the specific list and [`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md)
+   for the deployment plan itself.
 8. Driver/provider WhatsApp tracking agent, an extension beyond the
    original 7-step scope — done, proven end-to-end in both directions.
 

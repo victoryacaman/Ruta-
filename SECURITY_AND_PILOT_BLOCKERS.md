@@ -5,37 +5,97 @@ client-side code, and the database schema (column names/types only — no
 row data was read while compiling this document). This is the honest
 current state, not a plan or a set of intentions.
 
-**Status update (2026-09-23): the security-hardening pass is now complete
-in committed code — every gap this document originally found has a
-written fix, including the three that were still open as of the previous
-update (`excel-oauth-callback`'s state validation, `whatsapp-webhook`'s
-signature check, and the dashboard's own auth wiring). Nothing has been
-deployed or applied to the live project.** Everything below still
-describes what the *live, running* system actually does today, which has
-not changed — the live system remains exactly as insecure as described
-in every section until someone runs the deployment plan in
-`BUILD_LOG.md`'s "Security hardening completion" entry. See that entry
-for the full file list, the required migrations/env vars, and the
-ordered deploy sequence.
+**Status update (2026-09-23, second pass same day): the security-hardening
+pass is complete in committed code — every gap this document originally
+found has a written fix. Nothing has been deployed or applied to the live
+Supabase project.** One part of this *is* already live, though, and the
+rest of this document is corrected accordingly: the dashboard's frontend
+(`index.html`, `ruta-dashboard-fixed.html`) was already pushed to `main`
+in an earlier commit this same day, and GitHub Pages auto-publishes on
+push — confirmed by fetching the live hosted URLs directly, not assumed.
+**The live, hosted dashboard already presents a real magic-link sign-in
+and already sends a real bearer session token on every call.** What is
+**not** live is the backend half: none of the 19 deployed Edge Functions
+check that token or the `pilot_authorized_emails` allowlist yet, so the
+token the dashboard already sends is currently a no-op server-side. See
+[`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md) for the full file
+list, required migrations/secrets, and the ordered release sequence that
+closes this gap — `BUILD_LOG.md`'s entries record how each fix was built
+and verified, not how to deploy it.
+
+## Edge Function inventory (19 deployed, reconciled)
+
+Two counts have appeared in this document and elsewhere: **19 deployed**
+and **17 audited/local**. These were never actually in conflict — they
+describe two different sets, and no prior version of this document said
+so explicitly:
+
+- **17 functions** have local, git-tracked source under
+  `supabase/functions/` in this repository, and were each audited against
+  that source (rows 1–17 below).
+- **2 functions** are deployed to the live project with **no local
+  directory and no git history at all** — `storm-signal` and
+  `excel-debug` (rows 18–19 below). They were never missing from "the
+  live system," only from "this repository."
+
+17 + 2 = 19, matching `list_edge_functions` exactly. Nothing is
+unaccounted for.
+
+| # | Function | Local? | Deployed? | Intended caller | Auth model | Reads customer/personal data? | External side effects? | Repository status | Production status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `decisions-list` | Yes | Yes | Dashboard (`authedFetch`) | Supabase authenticated user | Yes — real decision history | No (pure read) | Implemented in repository, tested locally | Deployed (pre-hardening code); auth gating awaiting deployment |
+| 2 | `erp-inventory` | Yes | Yes | Dashboard + internal call from `risk-recommendation` (forwards caller's own token) | Supabase authenticated user | Yes — real inventory figures | Yes — calls external ERP APIs; writes refreshed `excel_oauth` token | Implemented in repository, tested locally | Deployed (pre-hardening code); awaiting deployment |
+| 3 | `excel-browse` | Yes | Yes | Dashboard (`authedFetch`) | Supabase authenticated user | Yes — real OneDrive file/table names | Yes — calls Microsoft Graph; may write refreshed token | Implemented in repository, tested locally | Deployed (pre-hardening code); awaiting deployment |
+| 4 | `excel-oauth-callback` | Yes | Yes | Microsoft's OAuth redirect (browser navigation — cannot carry a bearer token) | Microsoft OAuth state+PKCE | Yes — reads/stores real connected email | Yes — calls Microsoft's token endpoint + Graph `/me`; writes `oauth_states.used_at`, `excel_oauth`, `erp_config.provider` | Implemented in repository, tested locally (PKCE vs. RFC 7636's own vector) | Deployed (pre-hardening: no state check at all); awaiting deployment |
+| 5 | `excel-oauth-start` | Yes | Yes | Dashboard (`authedFetch`) | Supabase authenticated user | No — only a non-secret `client_id` | Yes — writes a new `oauth_states` row | Implemented in repository, tested locally | Deployed (pre-hardening code); awaiting deployment |
+| 6 | `excel-select-workbook` | Yes | Yes | Dashboard (`authedFetch`) | Supabase authenticated user | Yes — real OneDrive file/table names | Yes — calls Microsoft Graph; writes `erp_config`, may write `excel_oauth` | Implemented in repository, tested locally | Deployed (pre-hardening code); awaiting deployment |
+| 7 | `excel-status` | Yes | Yes | Dashboard (`authedFetch`) | Supabase authenticated user | Yes — real connected account email | No (pure read) | Implemented in repository, tested locally | Deployed (pre-hardening code); awaiting deployment |
+| 8 | `recommendation-action` | Yes | Yes | Dashboard (`authedFetch`) | Supabase authenticated user | Yes — writes real decision events | Yes — writes a `recommendation_events` row | Implemented in repository, tested locally | Deployed (pre-hardening code); awaiting deployment |
+| 9 | `request-tracking-update` | Yes | Yes | Dashboard (`authedFetch`), manual-button only | Supabase authenticated user | Yes — real driver name/phone | Yes — sends a real WhatsApp message; writes `whatsapp_send_log`, updates `shipments` | Implemented in repository, tested locally (`rateLimit_test.ts`) | Deployed (pre-hardening: no auth, no rate limit); awaiting deployment |
+| 10 | `risk-location-settings` | Yes | Yes | Dashboard (`authedFetch`, GET+POST) | Supabase authenticated user | No — generic operating configuration | Yes on POST — writes `risk_location_config` | Implemented in repository (no dedicated unit test for the validation fix) | Deployed (pre-hardening code); awaiting deployment |
+| 11 | `risk-recommendation` | Yes | Yes | Dashboard (`authedFetch`) | Supabase authenticated user | Yes — combines weather with real ERP data | Yes — calls Open-Meteo + internal `storm-signal`/`erp-inventory`; writes/upserts `risk_snapshots` | Implemented in repository, tested locally | Deployed (pre-hardening code); awaiting deployment |
+| 12 | `send-whatsapp-alert` | Yes | Yes | No dashboard call site — manual/admin only | Supabase authenticated user | Yes — real or caller-supplied phone number | Yes — sends a real WhatsApp message; writes `whatsapp_send_log` | Implemented in repository, tested locally (`rateLimit_test.ts`, 10/hour/user) | Deployed (pre-hardening: open to any caller/recipient); awaiting deployment — **flag for manual review**: no UI caller exists, confirm still needed |
+| 13 | `shipments-create` | Yes | Yes | Dashboard (`authedFetch`) | Supabase authenticated user | Yes — real driver PII | Yes — writes a `shipments` row | Implemented in repository, tested locally | Deployed (pre-hardening code); awaiting deployment |
+| 14 | `shipments-list` | Yes | Yes | Dashboard (`authedFetch`) | Supabase authenticated user | Yes — real driver PII | No (pure read) | Implemented in repository, tested locally | Deployed (pre-hardening code); awaiting deployment |
+| 15 | `whatsapp-setup-tracking-template` | Yes | Yes | No dashboard call site — one-time admin setup | Supabase authenticated user | No — template definition only | Yes — calls Meta's Business Management API to create/check the template | Implemented in repository | Deployed (pre-hardening code); awaiting deployment — **flag for manual review**: template already approved and in use, confirm whether this needs to stay deployed |
+| 16 | `whatsapp-webhook` | Yes | Yes | Meta's webhook system (server-to-server — cannot carry a bearer token) | Meta signature (`X-Hub-Signature-256`, verified before parsing; GET handshake via `hub.verify_token`) | Yes — real inbound driver phone/message | Yes — writes `whatsapp_webhook_events`, updates `shipments` | Implemented in repository, tested locally (`crypto_test.ts`) | **Deployed (pre-hardening: no POST signature check at all — the one concrete exploitable gap); awaiting deployment, highest priority** |
+| 17 | `whatsapp-webhook-subscription` | Yes | Yes | No dashboard call site — admin diagnostic/fix | Supabase authenticated user | No — WABA subscription status only | Yes — POST changes the live WABA's webhook subscription | Implemented in repository | Deployed (pre-hardening code); awaiting deployment — **flag for manual review**: admin diagnostic tool, confirm still needed |
+| 18 | `storm-signal` | **No — no local directory, no git history** | Yes (v2) | Internal call from `risk-recommendation`; public weather relay | Intentionally public — identical, non-customer-specific data for every caller, by design | No | No (read-only relay of NOAA/NHC data) | **Not in repository** | Deployed and in active use. **Flag, do not remove:** its own source comments reference sibling functions (`gmail-summary`, `patrol-summary`, `attendance-feed`) that don't exist anywhere in this project — evidence it was copied from an unrelated project at deploy time. Recommend a future, separate task to back-fill its real source into this repo; not touched in this pass |
+| 19 | `excel-debug` | **No — no local directory, no git history** | Yes (v3) | None — fully disabled | Disabled/deprecated (`Deno.serve(() => new Response("disabled", {status:410}))`, unconditionally) | No | No | **Not in repository** | Deployed but inert (HTTP 410 for every request). **Flagged for manual removal** — a one-off OneDrive-path diagnostic from the 2026-09-01 Excel setup; its own code comment already says it's safe to delete via the Supabase dashboard. Not deleted here — deleting a deployed function is a deployment action, out of scope for a documentation pass |
 
 ## Authentication status
 
-**There is no user login system anywhere in this project.** Specifically:
+**The currently-deployed production build presents a real magic-link
+sign-in screen, but none of the 19 live Edge Functions enforce it yet.**
+Real backend-enforced authentication (Supabase Auth checked against a
+`pilot_authorized_emails` allowlist, by every protected function) is
+**implemented in repository** and **tested locally**, but is **still open
+in production** — no migration, secret, or function redeploy for it has
+reached the live Supabase project. Concretely, today:
 
-- All 19 Supabase Edge Functions are deployed with `verify_jwt: false` —
-  none require a Supabase Auth session/JWT to invoke.
-- The dashboard's own "sign-in" is a single shared password, hardcoded as
-  a plain-text constant in `index.html`'s own JavaScript (readable via
-  view-source by anyone), which on success sets a `sessionStorage` flag
-  that a guard script checks before rendering the dashboard.
-- That `sessionStorage` flag is trivially set from a browser's devtools
-  console without ever knowing the password — this is a **deterrent**,
-  not access control. It stops a casual visitor from stumbling onto the
-  live URL; it stops nothing else.
-- This was a deliberate, disclosed tradeoff while showing the product to a
-  handful of people previewing a pilot pitch with demo/sample ERP data. It
-  is explicitly **not** sufficient once real customer ERP data is
-  connected.
+- `index.html` and `ruta-dashboard-fixed.html` are already deployed with
+  real Supabase Auth: a genuine email magic-link sign-in, and an
+  `authedFetch()` wrapper that attaches a real bearer session token to
+  every protected call. **Verified in production** — confirmed directly
+  against the live GitHub Pages URLs (`authedFetch`/`getSession` present,
+  no `sessionStorage`/`ruta_authed` gate remaining).
+- That real session token is currently a no-op from the backend's point
+  of view: every one of the 19 deployed Edge Functions still runs
+  pre-hardening code that neither checks the platform-level JWT
+  (`verify_jwt: false` on all 19) nor calls `requireAuthorizedUser`.
+  Anyone who calls a function's URL directly — no session, no token,
+  bypassing the dashboard UI entirely — gets exactly the same response as
+  someone who just signed in through the real magic-link flow.
+- This is not a documented tradeoff the way the old shared-password gate
+  was (see `BUILD_LOG.md`'s earlier entries for that history) — it is a
+  mid-migration state: the frontend cutover already landed (pushed to
+  `main`, auto-published by GitHub Pages) before the backend redeploy
+  that would make it actually enforce anything. See
+  [`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md) for exactly what
+  closes this gap, and in what order — seeding `pilot_authorized_emails`
+  with the owner's own email *before* any gated function is redeployed is
+  the one step that must not be skipped or reordered, to avoid the owner
+  locking themselves out.
 
 ## Public endpoint exposure
 
@@ -110,10 +170,12 @@ functions — the same pattern would directly apply to the write-capable
 endpoints above, several of which currently have no gate to even
 *throttle*, let alone a secret to guess.)
 
-## Meta webhook signature validation — not implemented
+## Meta webhook signature validation — implemented in repository, tested locally, awaiting deployment
 
-`whatsapp-webhook`'s POST handler (the one that records inbound driver
-replies) does **not** check Meta's `X-Hub-Signature-256` header at all —
+**What follows describes the currently-deployed production behavior**,
+which the fix below has not reached yet. `whatsapp-webhook`'s POST
+handler (the one that records inbound driver replies) does **not** check
+Meta's `X-Hub-Signature-256` header at all —
 there is no HMAC computation, no app-secret comparison, and no signature
 check of any kind in the POST path. **Any POST request shaped like a
 WhatsApp message-delivery payload is trusted and processed as if it came
@@ -185,11 +247,18 @@ response (e.g. Meta's message-send confirmation), never the internal
 token used to make the call. This part of the system is built correctly
 and consistently; it is not a blocker.
 
-## Rate limiting — not implemented anywhere
+## Rate limiting — implemented in repository, tested locally, awaiting deployment
 
-Covered above under "Public endpoint exposure." Worth restating as its own
-line item since it's one of the more mechanical, fastest-to-fix gaps: none
-of the 19 functions have any per-caller throttle, on read or write paths.
+Covered above under "Public endpoint exposure." Worth restating as its
+own line item: **in production today**, none of the 19 deployed
+functions have any per-caller throttle, on read or write paths. A
+race-safe rate limiter (`claim_whatsapp_send_slot`, a Postgres
+advisory-lock RPC that closes a TOCTOU gap the original check-then-insert
+pattern had) for `request-tracking-update` (60-minute per-shipment
+cooldown) and `send-whatsapp-alert` (10/hour/user) is **implemented in
+repository** and **tested locally** (`rateLimit_test.ts`), but **still
+open in production** until the `20260923000000_atomic_rate_limit.sql`
+migration is applied and both functions are redeployed.
 
 ## Demo-data separation — fixed in committed code, not yet deployed
 
@@ -214,71 +283,79 @@ None of this is live yet — the migration hasn't been applied.
 ## Everything required before real customer data flows through this
 
 In priority order, based on actual exposure (not just theoretical risk).
-Status as of 2026-09-23, distinguishing four things per item:
+Status as of 2026-09-23, distinguishing six things per item:
 
-- **Implemented** — the code exists in the repository.
-- **Tested** — covered by a passing automated unit or integration test
-  (not just "should work from reading the code").
+- **Implemented in repository** — the code exists in the repository, not
+  yet deployed.
+- **Tested locally** — covered by a passing automated unit or
+  integration test run against the repository, not the live system.
 - **Awaiting deployment** — implemented (and, where noted, tested), but
   not yet applied/deployed to the live Supabase project.
-- **Deployed and verified** — live, and confirmed working against the
-  real deployed system.
+- **Deployed** — the code has been redeployed/applied to the live
+  project.
+- **Verified in production** — deployed, and confirmed working against
+  the real live system, not just "should work."
 - **Still open** — not implemented at all.
 
-**None of items 1–6 below are "Deployed and verified" — every one of
-them still describes the live system's actual, unfixed behavior until
-the deployment plan in `BUILD_LOG.md`'s 2026-09-23 entry is run.**
+**None of items 1–6 below are "Deployed" or "Verified in production" —
+every one of them still describes the live system's actual, unfixed
+behavior until the release sequence in
+[`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md) is run.**
 
 1. **Fix the Meta webhook signature check** — the one concrete, currently-
    exploitable gap that lets an outside party write fabricated data into
-   a real customer's shipment records. **Implemented and tested, awaiting
-   deployment** — `whatsapp-webhook` now calls the existing
-   `verifyMetaSignature` verifier and rejects before parsing the body;
-   covered by `crypto_test.ts` (valid/wrong-secret/tampered-body/missing-
-   header cases).
+   a real customer's shipment records. **Implemented in repository,
+   tested locally, awaiting deployment** — `whatsapp-webhook` now calls
+   the existing `verifyMetaSignature` verifier and rejects before parsing
+   the body; covered by `crypto_test.ts` (valid/wrong-secret/tampered-
+   body/missing-header cases).
 2. **Real backend-enforced authentication** in front of the dashboard and
    the write-capable Edge Functions — Supabase Auth, checked against a
    `pilot_authorized_emails` allowlist, replacing the plain-JS shared
-   password. **Implemented and tested, awaiting deployment** — written
-   for all 15 authenticated functions server-side, and for the dashboard
-   itself: `index.html` now does a real email magic-link sign-in, and
-   `ruta-dashboard-fixed.html` bootstraps a real session, attaches it as
-   a bearer token on every protected call via a new `authedFetch()`,
-   handles 401 (session invalid → sign back in) and 403 (real session,
-   not on the allowlist → banner), and has a working sign-out button;
-   covered by a 10-check Playwright test (`dashboard_auth_test.js`).
+   password. **Implemented in repository, tested locally, awaiting
+   deployment for the backend; the dashboard's own half is already
+   Deployed and Verified in production** — written for all 15
+   authenticated functions server-side (awaiting deployment); on the
+   frontend, `index.html` already does a real email magic-link sign-in
+   in production, and `ruta-dashboard-fixed.html` already bootstraps a
+   real session, attaches it as a bearer token on every protected call
+   via a new `authedFetch()`, handles 401 (session invalid → sign back
+   in) and 403 (real session, not on the allowlist → banner), and has a
+   working sign-out button — all confirmed live against the hosted URLs;
+   covered by a 10-check Playwright test (`dashboard_auth_test.js`)
+   locally. The functions it calls don't check any of this yet.
 3. **Store and check the OAuth `state` parameter for real** before a
    second Microsoft account is ever connected through this flow.
-   **Implemented and tested, awaiting deployment** — `excel-oauth-start`
-   requires auth and generates real state+PKCE; `excel-oauth-callback`
-   now validates and atomically consumes it, PKCE included; the PKCE
-   math is covered by `crypto_test.ts` against RFC 7636's own test
-   vector. The state-consumption race logic itself has no live-database
-   test (would require a deployed project) — see "claims that could not
-   be verified" in the task summary for this pass.
+   **Implemented in repository, tested locally, awaiting deployment** —
+   `excel-oauth-start` requires auth and generates real state+PKCE;
+   `excel-oauth-callback` now validates and atomically consumes it, PKCE
+   included; the PKCE math is covered by `crypto_test.ts` against RFC
+   7636's own test vector. The state-consumption race logic itself has
+   no live-database test (would require a deployed project) — flagged as
+   unverifiable in this pass, see the completion report.
 4. **Add rate limiting** to every write-capable endpoint, especially
    `request-tracking-update` and `send-whatsapp-alert` (both spend the
    project's real, limited WhatsApp send allowance and could be used to
    harass a real phone number if abused) and `whatsapp-webhook`.
-   **Implemented and tested, awaiting deployment** — written for
-   `request-tracking-update` (60-min per-shipment cooldown) and
-   `send-whatsapp-alert` (10/hour/user), and made race-safe (a Postgres
-   advisory-lock RPC replaces the old check-then-insert, closing a TOCTOU
-   gap two near-simultaneous requests could have slipped through), with
-   the pure counting/cooldown logic covered by `rateLimit_test.ts`;
-   `whatsapp-webhook` doesn't need a caller-side rate limit now that
-   item 1 (signature verification) gates it instead.
+   **Implemented in repository, tested locally, awaiting deployment** —
+   written for `request-tracking-update` (60-min per-shipment cooldown)
+   and `send-whatsapp-alert` (10/hour/user), and made race-safe (a
+   Postgres advisory-lock RPC replaces the old check-then-insert, closing
+   a TOCTOU gap two near-simultaneous requests could have slipped
+   through), with the pure counting/cooldown logic covered by
+   `rateLimit_test.ts`; `whatsapp-webhook` doesn't need a caller-side
+   rate limit now that item 1 (signature verification) gates it instead.
 5. **Tighten `risk-location-settings`'s input validation** (bounds-check
-   `relevantRadiusKm`, whitelist `currencyCode`). **Implemented,
-   awaiting deployment** — no dedicated unit test for this specific
-   validation exists.
+   `relevantRadiusKm`, whitelist `currencyCode`). **Implemented in
+   repository, awaiting deployment** — no dedicated unit test for this
+   specific validation exists (not tested locally in the automated sense).
 6. **Separate real usage from test/development data** — add an
    environment or `is_test` marker to `risk_snapshots`, or run a real data
    wipe as part of onboarding, before quoting approval-rate figures to a
-   real pilot customer. **Implemented and tested, awaiting deployment** —
-   see the Demo-data-separation section above; covered by
-   `decisions_metrics_test.ts`; pending the migration actually being
-   applied.
+   real pilot customer. **Implemented in repository, tested locally,
+   awaiting deployment** — see the Demo-data-separation section above;
+   covered by `decisions_metrics_test.ts`; pending the migration
+   actually being applied.
 7. **A real production domain** — not strictly a security fix, but the
    project's own build order already treats this as a pilot prerequisite
    alongside authentication, and it's the natural point to also add TLS/

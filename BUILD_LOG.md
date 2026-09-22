@@ -864,3 +864,106 @@ deployed as part of this pass.
   confirmed resolving to files that exist in this same directory. Full
   lint output is in the task summary delivered alongside this change,
   not reproduced here.
+
+## 2026-09-23 — Documentation-consistency and deployment-readiness pass (no code changed)
+
+A further documentation-only pass, following the same-day "Documentation
+accuracy pass" above: reconciled the Edge Function inventory, corrected
+wording that still overstated or understated deployment reality, and
+added the deployment runbook two other documents had been pointing at
+without the file actually existing.
+
+- **Edge Function inventory reconciled to all 19.**
+  `SECURITY_AND_PILOT_BLOCKERS.md` gained a full 19-row table: the 17
+  functions with local, git-tracked source, plus `storm-signal` and
+  `excel-debug`, both deployed directly to the live project with no local
+  directory and no git history at all. The "19 deployed vs. 17 audited"
+  phrasing in earlier notes was never a real contradiction — it
+  described two different sets without saying so; the new table names
+  both sets explicitly, with per-function caller/auth-model/data-
+  sensitivity/side-effect detail for all 19. `excel-debug` (fully
+  disabled, HTTP 410 for every request, its own code comment already
+  says safe to delete) is flagged for manual removal, not deleted.
+  `storm-signal`'s source comments reference an unrelated project's
+  functions (`gmail-summary`, `patrol-summary`, `attendance-feed`) that
+  don't exist here — flagged for a future cleanup task, left untouched.
+  Three functions with no dashboard call site at all
+  (`send-whatsapp-alert`, `whatsapp-setup-tracking-template`,
+  `whatsapp-webhook-subscription`) are flagged for the owner's manual
+  review on whether to keep them as admin tools or retire them, not
+  removed.
+- **Confirmed live, by directly fetching the hosted URLs rather than
+  assuming from the git log: the dashboard's frontend security fix has
+  already shipped.** `index.html` already serves the real magic-link
+  sign-in form; `ruta-dashboard-fixed.html` already contains
+  `authedFetch`/`getSession`, with no `sessionStorage`/`ruta_authed` gate
+  remaining. `SECURITY_AND_PILOT_BLOCKERS.md`'s "single shared
+  password... `sessionStorage` flag" bullets and `UTOPIA_CURRENT_SPEC.md`'s
+  "the live dashboard has not been redeployed" line were both accurate
+  when written and are now stale — corrected in both documents. The real
+  remaining gap is entirely backend: none of the 19 deployed Edge
+  Functions check the session/allowlist the already-live dashboard
+  sends.
+- **"Not implemented" headings renamed where the work is actually
+  implemented in the repository.** `SECURITY_AND_PILOT_BLOCKERS.md`'s
+  "Meta webhook signature validation — not implemented" and "Rate
+  limiting — not implemented anywhere" headings both described only the
+  live/deployed state; the rate-limiting body text never mentioned that
+  a race-safe limiter already exists in committed, tested, undeployed
+  code. Both headings and the rate-limiting body now state
+  Implemented-in-repository/Tested-locally/Awaiting-deployment
+  explicitly, and the priority list's status legend was expanded from
+  three informal labels to the six precise ones this pass standardized
+  on: Implemented in repository / Tested locally / Awaiting deployment /
+  Deployed / Verified in production / Still open.
+- **Excel-data classification tightened further.** The prior pass
+  already corrected "real, non-synthetic data" to "test/sample rows,"
+  but still stated that classification more confidently than this
+  project's own no-row-reading policy supports. `UTOPIA_CURRENT_SPEC.md`
+  now states explicitly, in the exact required wording: the workbook
+  belongs to a personal development account with no confirmed pilot
+  customer, its row contents were not inspected by this or any prior
+  documentation pass, and "test/sample data" is a documentation and
+  metric-classification treatment applied in that absence, not a claim
+  about what the cells actually contain.
+- **Meta-token wording corrected a third time, more precisely.** The
+  prior pass's "a token with no scheduled expiration; it can still be
+  revoked or invalidated" still opened with "works today," which implied
+  validity had just been rechecked. `UTOPIA_CURRENT_SPEC.md` now states
+  explicitly, in the exact required wording: the token was previously
+  verified working, its current validity was not rechecked during this
+  specific review, and it remains revocable — never described as
+  permanent or guaranteed non-expiring at any point.
+- **`DEPLOYMENT_RUNBOOK.md` created**, filling a gap four separate
+  passages (in `CLAUDE.md`, `SECURITY_AND_PILOT_BLOCKERS.md` twice, and
+  `PILOT_PLAYBOOK.md`) already pointed at without the file existing:
+  preconditions (clean commit, the exact test suite that must pass, a
+  DB backup/recovery plan, Supabase Auth/Microsoft/CORS configuration to
+  confirm, secret names with no values, a literal grep command
+  confirming no service-role credential reaches browser code); an
+  ordered release sequence reasoned explicitly around the one real
+  lockout risk this project has (seed `pilot_authorized_emails` with the
+  owner's own email *before* redeploying any function that gates on it,
+  since the dashboard already sends a real session in production and
+  would otherwise 403 the owner on first use) and around not breaking
+  the currently-working Excel/WhatsApp pipelines (redeploying
+  `excel-oauth-start`/`excel-oauth-callback` together, never separately;
+  setting `whatsapp_config.meta_app_secret` before `whatsapp-webhook`'s
+  redeploy); a 19-row production smoke-test table; a per-layer rollback
+  plan naming exactly what reopens a known vulnerability if rolled back,
+  plus an explicit owner-lockout recovery path and a fast outbound-
+  WhatsApp kill switch; and a blank post-deployment verification record.
+  Linked from `CLAUDE.md`'s index and from every prior "deployment plan"
+  reference across the other documents.
+- **Not done this pass:** nothing was deployed, no migration was applied
+  to the live Supabase project, no credential was rotated, no external
+  Meta/Microsoft/Supabase configuration was changed, and the dashboard
+  was not (re-)published — its current live state was only verified,
+  not altered, by this pass.
+- **Markdown validated**: `markdownlint-cli` run against all six files
+  (the five existing documents plus the new `DEPLOYMENT_RUNBOOK.md`);
+  every relative link across all six (`CLAUDE.md`'s five,
+  `SECURITY_AND_PILOT_BLOCKERS.md`'s two, `PILOT_PLAYBOOK.md`'s one,
+  `UTOPIA_CURRENT_SPEC.md`'s one) confirmed resolving to a file that
+  exists in this same directory. All six packaged into
+  `UTOPIA_DOCUMENTATION_FINAL_REVIEW.zip`.

@@ -26,14 +26,22 @@ wrong along the way). Every capability below is tagged:
 ## Repository status vs. deployed status (as of 2026-09-23)
 
 As of this date, a full authentication/authorization hardening pass —
-real Supabase Auth on the dashboard, a `pilot_authorized_emails` allowlist
-gating 15 of 17 Edge Functions, real Microsoft OAuth `state`+PKCE
+real Supabase Auth, a `pilot_authorized_emails` allowlist gating 15 of
+the 17 local/repo Edge Functions, real Microsoft OAuth `state`+PKCE
 validation, real Meta webhook signature verification, and a race-safe
 rate limit — is **written, unit- and integration-tested, and committed to
-the repository, but not deployed or applied to the live Supabase
-project**. Full detail, including exactly which functions/migrations are
-affected and the deployment plan, lives in `SECURITY_AND_PILOT_BLOCKERS.md`
-and `BUILD_LOG.md`'s 2026-09-22/2026-09-23 entries.
+the repository**. **Part of it is already deployed: the dashboard's own
+frontend (`index.html`, `ruta-dashboard-fixed.html`) was pushed to `main`
+and is already live on GitHub Pages, confirmed directly against the
+hosted URLs** — a real magic-link sign-in and a real bearer session on
+every call. **The backend half is not deployed** — none of the 19
+Edge Functions (17 in this repo + 2 deployed-only — see the full
+reconciliation table in `SECURITY_AND_PILOT_BLOCKERS.md`) have been
+redeployed with any of this, and none of the 3 pending migrations have
+been applied to the live database. The deployment plan itself lives in
+[`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md); `SECURITY_AND_PILOT_BLOCKERS.md`
+has the full per-function detail; `BUILD_LOG.md`'s 2026-09-22/2026-09-23
+entries record how each fix was built and verified.
 
 This does **not** change the tags below for capabilities whose actual
 *behavior* is identical live and in the repository (e.g. the scoring
@@ -41,8 +49,9 @@ math, the WhatsApp send/receive mechanics) — those remain **Live and
 verified** where they always were. It does mean: every Edge Function
 that reads customer data, changes config, or sends a message currently
 requires **no authentication at all in production**, regardless of what
-the repository's code checks, until that pass is deployed. Nowhere below
-should "Live and verified" be read as "and also already authenticated in
+the repository's code checks or what the already-live dashboard sends,
+until the backend half of this pass is deployed. Nowhere below should
+"Live and verified" be read as "and also already authenticated in
 production" unless stated explicitly.
 
 ## Legacy names
@@ -144,24 +153,28 @@ path in the function.
   written, and third-party API licensing hasn't been confirmed for a real
   target account.
 - **Excel/OneDrive adapter — Live and verified** (the integration
-  mechanism), **test rows in a real workbook** (the data). A genuine
-  Microsoft sign-in (delegated Graph permissions, no password ever
-  touching this dashboard), a real in-app workbook/table picker, and
-  column resolution by header name (not fixed position) so a customer's
-  own column order doesn't silently scramble data — all verified against
-  a real, live Microsoft account and a real OneDrive workbook, not a
-  mock. **What "real" does not mean here:** per `BUILD_LOG.md`'s
-  2026-09-01 entry, that Microsoft account is a personal one registered
-  for building/testing this connector, not a confirmed operating
-  business's account (no pilot customer is confirmed yet — see
-  `PILOT_PLAYBOOK.md`'s "Pilot scope"). The 20 rows verified against
-  (first headers-only, then populated, including a fix for a real "shows
-  $0" bug) are test/sample inventory rows entered for verification
-  purposes, not an operating company's actual inventory. This is the only
-  adapter exercised against a real, live-connected account of any kind —
-  the other three (below) have never been tried against a live instance
-  at all — but "real account" should not be read as "real operational
-  company data."
+  mechanism, a real Microsoft/Graph account), **unverified row-content
+  classification** (the data — see below, not a mock but not confirmed
+  operational data either). A genuine Microsoft sign-in (delegated Graph
+  permissions, no password ever touching this dashboard), a real in-app
+  workbook/table picker, and column resolution by header name (not fixed
+  position) so a customer's own column order doesn't silently scramble
+  data — all verified against a real, live Microsoft account and a real
+  OneDrive workbook. The 20 rows worked with (first headers-only, then
+  populated, including a fix for a real "shows $0" bug) confirm the
+  integration mechanism against that real, live-connected account — not
+  a mock. **The workbook belongs to a personal development account with
+  no confirmed pilot customer. Its row contents were not inspected; for
+  documentation and metric classification, they are treated as
+  test/sample data rather than verified operational company data.**
+  (Background: per `BUILD_LOG.md`'s 2026-09-01 entry, the Microsoft
+  account is a personal one registered for building/testing this
+  connector; see `PILOT_PLAYBOOK.md`'s "Pilot scope" for the current lack
+  of a confirmed pilot customer.) This is the only adapter exercised
+  against a real, live-connected account of any kind — the other three
+  (below) have never been tried against a live instance at all — but
+  "real account and real integration" should not be read as "real
+  operational company data."
 - **ZafraCloud adapter — Implemented but not live-validated.** Built
   directly from ZafraCloud's own published API documentation (found by
   reading the docs page's bundled JS to locate its machine-readable spec,
@@ -262,11 +275,14 @@ change whether a message actually sends, only who's currently allowed to
 trigger it once deployed.
 
 - **`hello_world` (Meta's own generic default template) — Live and
-  verified.** Works today with a token with no scheduled expiration; it
-  can still be revoked or invalidated (a Meta Business System User token,
-  generated with expiration set to "Never" — not a guarantee against
-  revocation, and not the previous short-lived console token that broke
-  the send pipeline twice). No template approval needed; it's Meta's own
+  verified** (the send/receive mechanism and template), **current token
+  validity not rechecked this review.** Previously verified working with
+  a token configured without scheduled expiration; current token
+  validity was not rechecked during this review. The token can still be
+  revoked or invalidated (a Meta Business System User token, generated
+  with expiration set to "Never" — not a guarantee against revocation,
+  and not the previous short-lived console token that broke the send
+  pipeline twice). No template approval needed; it's Meta's own
   pre-approved template.
 - **A custom driver-tracking template (Spanish, asks a driver for a
   tracking number/ETA) — Live and verified, both directions.** Submitted
@@ -331,13 +347,19 @@ version of this document's "covers every static and dynamic string"
 claim did not draw this distinction and has been corrected here; it's
 already listed correctly under "Planned" below.
 
-**Authentication — repository status ahead of production.** As of
-2026-09-23, `index.html` and `ruta-dashboard-fixed.html` in the
-repository use a real Supabase Auth magic-link sign-in and an
-`authedFetch()` wrapper on every protected call. **The live, hosted
-dashboard has not been redeployed with this change** — it still uses the
-old shared-password `sessionStorage` gate described in
-`SECURITY_AND_PILOT_BLOCKERS.md`.
+**Authentication — frontend deployed, backend still open.**
+`index.html` and `ruta-dashboard-fixed.html` use a real Supabase Auth
+magic-link sign-in and an `authedFetch()` wrapper on every protected
+call, and **this is already live** — confirmed directly against the
+hosted GitHub Pages URLs, not assumed from the git log: GitHub Pages
+auto-publishes on push to `main`, and the commit carrying this change
+was already pushed. **What is not yet true in production:** none of the
+19 deployed Edge Functions check that session or the
+`pilot_authorized_emails` allowlist yet — the real bearer token the live
+dashboard already sends is currently ignored server-side. See
+`SECURITY_AND_PILOT_BLOCKERS.md` and
+[`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md) for exactly what
+closes this gap and in what order.
 
 ### Hosting — **Live and verified**
 
