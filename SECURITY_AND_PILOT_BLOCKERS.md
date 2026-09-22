@@ -5,16 +5,18 @@ client-side code, and the database schema (column names/types only — no
 row data was read while compiling this document). This is the honest
 current state, not a plan or a set of intentions.
 
-**Status update (2026-09-22, later the same day): fixes for most of this
-have been written and committed (`supabase/` tree), but nothing has been
-deployed or applied to the live project.** Everything below describes
-what the *live, running* system actually does today — that has not
-changed. See each section's own note for what's fixed in code and still
-pending deployment, and `BUILD_LOG.md`'s "Security hardening" entry for
-the full detail. Left genuinely open even in the unpicked code:
-`excel-oauth-callback`'s state validation, `whatsapp-webhook`'s signature
-check, and the dashboard's own auth wiring — none of those were reached
-before this pass paused to do other work.
+**Status update (2026-09-23): the security-hardening pass is now complete
+in committed code — every gap this document originally found has a
+written fix, including the three that were still open as of the previous
+update (`excel-oauth-callback`'s state validation, `whatsapp-webhook`'s
+signature check, and the dashboard's own auth wiring). Nothing has been
+deployed or applied to the live project.** Everything below still
+describes what the *live, running* system actually does today, which has
+not changed — the live system remains exactly as insecure as described
+in every section until someone runs the deployment plan in
+`BUILD_LOG.md`'s "Security hardening completion" entry. See that entry
+for the full file list, the required migrations/env vars, and the
+ordered deploy sequence.
 
 ## Authentication status
 
@@ -41,7 +43,14 @@ Every one of the 19 Edge Functions is reachable by anyone who has (or
 guesses, or finds via the dashboard's own client-side source) its URL, with
 **no caller-side secret, signature, or token check of any kind**, except
 the one narrow case noted under "Meta webhook signature validation" below.
-Grouped by what that actually means in practice:
+Grouped by what that actually means in practice. **All of it below is
+now closed in committed, undeployed code**: `requireAuthorizedUser` (real
+Supabase Auth session + `pilot_authorized_emails` allowlist check) now
+gates every function named below except `excel-oauth-callback` and
+`whatsapp-webhook`, which are public by design and gated by protocol
+verification instead (state+PKCE, and Meta's own signature,
+respectively — see their own sections). The live, deployed functions are
+still exactly as open as described until redeployed.
 
 **Read-only, low risk — returns only non-sensitive computed data:**
 `storm-signal`, `risk-recommendation`, `decisions-list`, `excel-browse`
@@ -108,12 +117,14 @@ documented tradeoff** — it should be fixed (verify the signature using the
 Meta app secret) before this pipeline is trusted with real customer
 shipment data.
 
-**Not yet fixed even in the unpicked code.** The verifier itself
-(`verifyMetaSignature`, constant-time HMAC-SHA256 over the raw body) and
-a `whatsapp_config.meta_app_secret` column/idempotency table exist as of
-2026-09-22, but `whatsapp-webhook`'s own handler was never rewritten to
-call it — this gap is real in both the live function and the latest
-committed code.
+**Fixed in committed code as of 2026-09-23, not yet deployed.**
+`whatsapp-webhook/index.ts` now reads the raw body via `req.text()`
+before any parsing, calls `verifyMetaSignature` against
+`whatsapp_config.meta_app_secret`, and returns 401 before touching the
+body if the signature is missing or wrong. It also adds message-ID
+idempotency (`whatsapp_webhook_events`, insert-before-ack) so a Meta
+retry doesn't reprocess the same inbound message twice. The live
+function still has none of this until it's redeployed.
 
 ## Microsoft OAuth state validation — weaker than previously documented
 
@@ -131,13 +142,17 @@ connector today), but the gap is real and should be closed (store `state`
 server-side, or in a short-lived signed cookie, and compare it on
 callback) before a second real user/tenant is onboarded.
 
-**Half-fixed in committed, undeployed code.** An `oauth_states` table
-(state + PKCE `code_verifier` + requesting user + expiry + used-once
-flag) exists, and `excel-oauth-start` now requires an authorized user's
-session to even generate one. But `excel-oauth-callback` was never
-rewritten to actually read, validate, and consume that state — so the
-real fix (closing the gap this section describes) isn't done yet,
-in code or live.
+**Fixed in committed code as of 2026-09-23, not yet deployed.**
+`excel-oauth-callback/index.ts` now reads `state` off Microsoft's
+redirect and atomically consumes the matching `oauth_states` row (a
+single conditional `UPDATE ... WHERE state=$1 AND used_at IS NULL AND
+expires_at > now()`) — missing, unknown, expired, reused, or wrong-
+provider state is rejected the same way, before the authorization
+`code` is ever exchanged. The stored PKCE `code_verifier` is included in
+the token exchange. Errors redirect with a short generic code
+(`invalid_state`, `token_exchange_failed`, etc.), never a token, verifier,
+or Microsoft's own error text. The live function still has none of this
+until it's redeployed.
 
 ## Credential handling — a genuine strength, confirmed
 
@@ -188,25 +203,34 @@ above in every case.**
 
 1. **Fix the Meta webhook signature check** — the one concrete, currently-
    exploitable gap that lets an outside party write fabricated data into
-   a real customer's shipment records. *Not written yet — the verifier
-   exists in `_shared/crypto.ts` but `whatsapp-webhook` doesn't call it.*
-2. **Real backend-enforced authentication** in front of the dashboard and,
-   ideally, the write-capable Edge Functions — Supabase Auth or a proper
-   reverse-proxy auth layer, replacing the plain-JS shared password.
-   *Written for 12 of ~17 functions server-side; the dashboard's own
-   frontend auth wiring (supabase-js, per-request tokens, sign-out) was
-   not started.*
+   a real customer's shipment records. *Written — `whatsapp-webhook` now
+   calls the existing `verifyMetaSignature` verifier and rejects before
+   parsing the body.*
+2. **Real backend-enforced authentication** in front of the dashboard and
+   the write-capable Edge Functions — Supabase Auth, checked against a
+   `pilot_authorized_emails` allowlist, replacing the plain-JS shared
+   password. *Written for all 15 authenticated functions server-side, and
+   for the dashboard itself: `index.html` now does a real email magic-link
+   sign-in, and `ruta-dashboard-fixed.html` bootstraps a real session,
+   attaches it as a bearer token on every protected call via a new
+   `authedFetch()`, handles 401 (session invalid → sign back in) and 403
+   (real session, not on the allowlist → banner), and has a working
+   sign-out button.*
 3. **Store and check the OAuth `state` parameter for real** before a
-   second Microsoft account is ever connected through this flow. *Half
-   written — `excel-oauth-start` requires auth and generates real
-   state+PKCE now; `excel-oauth-callback` still doesn't validate it.*
+   second Microsoft account is ever connected through this flow.
+   *Written — `excel-oauth-start` requires auth and generates real
+   state+PKCE; `excel-oauth-callback` now validates and atomically
+   consumes it, PKCE included.*
 4. **Add rate limiting** to every write-capable endpoint, especially
    `request-tracking-update` and `send-whatsapp-alert` (both spend the
    project's real, limited WhatsApp send allowance and could be used to
    harass a real phone number if abused) and `whatsapp-webhook`. *Written
    for `request-tracking-update` (60-min per-shipment cooldown) and
-   `send-whatsapp-alert` (10/hour/user); `whatsapp-webhook` itself has
-   none, and can't sensibly until item 1 exists.*
+   `send-whatsapp-alert` (10/hour/user), and made race-safe (a Postgres
+   advisory-lock RPC replaces the old check-then-insert, closing a TOCTOU
+   gap two near-simultaneous requests could have slipped through);
+   `whatsapp-webhook` doesn't need a caller-side rate limit now that
+   item 1 (signature verification) gates it instead.*
 5. **Tighten `risk-location-settings`'s input validation** (bounds-check
    `relevantRadiusKm`, whitelist `currencyCode`). *Written.*
 6. **Separate real usage from test/development data** — add an

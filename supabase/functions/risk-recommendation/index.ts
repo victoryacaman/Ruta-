@@ -11,10 +11,16 @@ import { computeSignalFingerprint } from "./fingerprint.ts";
 //
 // SECURITY HARDENING (2026-09-22): the response includes real ERP-derived
 // data (atRiskSkus[].sku/name/onHandUnits/...) once a real ERP/Excel is
-// connected, so this is now gated the same as erp-inventory. Its internal
-// call to erp-inventory now authenticates with this project's own
-// service_role key (see _shared/auth.ts) -- storm-signal stays
-// unauthenticated since it returns no customer data at all.
+// connected, so this is now gated the same as erp-inventory. storm-signal
+// stays unauthenticated since it returns no customer data at all.
+//
+// INTERNAL AUTH REVIEW (2026-09-23): the internal call to erp-inventory
+// forwards the ORIGINAL caller's own Authorization header rather than
+// this project's service_role key -- erp-inventory verifies that real
+// end-user the same way a direct call would (see _shared/auth.ts for why
+// the service_role bypass was removed). This means an unauthorized
+// caller can't reach erp-inventory's data through this function either,
+// and no broad internal credential travels between functions at all.
 //
 // DATA INTEGRITY (2026-09-22): the per-SKU exposure/transfer math and the
 // conservative-transfer verification logic now live in scoring.ts, as
@@ -112,12 +118,15 @@ Deno.serve(async (req: Request) => {
       : "page_load") as "page_load" | "manual_refresh" | "scheduled" | "test";
 
     const location = await loadLocationConfig();
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    // Forward the caller's own bearer token, not a broad internal
+    // credential -- erp-inventory independently re-verifies this same
+    // real user (see the INTERNAL AUTH REVIEW note above).
+    const callerAuthHeader = req.headers.get("authorization") ?? "";
 
     const [weatherResult, stormsResult, erpResult] = await Promise.allSettled([
       fetchWeatherOutlook(location.lat, location.lon),
       fetch(STORM_SIGNAL_URL).then((r) => r.json()),
-      fetch(ERP_INVENTORY_URL, { headers: { Authorization: `Bearer ${serviceRoleKey}` } }).then((r) => r.json()),
+      fetch(ERP_INVENTORY_URL, { headers: { Authorization: callerAuthHeader } }).then((r) => r.json()),
     ]);
 
     const weatherFailed = weatherResult.status !== "fulfilled";

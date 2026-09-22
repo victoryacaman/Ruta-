@@ -633,3 +633,111 @@ the same files eventually. Also not deployed.
   without confirmation first. The security pass's own unfinished pieces
   (listed above) remain unfinished — this data-integrity work was built
   on top of that pass's partial code, not instead of finishing it.
+
+## 2026-09-23 — Security hardening completion: dashboard auth, remaining
+   functions, OAuth state/PKCE, webhook signatures, internal auth review
+
+Closes out every gap the previous two passes left open, as one internally
+consistent release. Continued the existing implementation throughout —
+no second authentication architecture, no restart.
+
+- **Dashboard authentication wired up for real.** `index.html` replaced
+  its plain-text `ACCESS_CODE` gate with a Supabase Auth email magic-link
+  sign-in (`signInWithOtp`); a session already present redirects straight
+  to the dashboard. `ruta-dashboard-fixed.html` replaced its
+  `sessionStorage.ruta_authed` bypass with a real session bootstrap
+  (hides the page via `document.documentElement.style.visibility` until
+  `getSession()` confirms one exists, redirecting to sign-in otherwise),
+  an `onAuthStateChange` listener for expiry/refresh while the tab stays
+  open, a persistent sign-out button in the sidebar, and a new
+  `authedFetch()` wrapper — attaches the session's `access_token` as a
+  Bearer header, redirects to sign-in on 401 (after calling `signOut()`),
+  and shows a "not authorized for this deployment" banner on 403. Every
+  one of the dashboard's ~20 `fetch()` call sites now goes through it,
+  including a rewritten `connectExcel()` (can no longer be a plain `<a
+  href>` navigation now that `excel-oauth-start` requires auth — it calls
+  the function via `authedFetch`, gets back `{authorizeUrl}` as JSON, and
+  navigates the browser there itself). Only the anon/publishable key ever
+  reaches the browser; the profile panel shows the real signed-in email.
+- **The 5 functions still missing from the security-hardening pass are
+  written.** `excel-oauth-start` (already written before this entry)
+  requires an authorized session and mints a real `state` + PKCE
+  `code_verifier`/`code_challenge` pair per attempt, stored server-side in
+  a new `oauth_states` table. `excel-oauth-callback` (new) atomically
+  consumes that row (`UPDATE ... WHERE state=$1 AND used_at IS NULL AND
+  expires_at > now()`) before exchanging Microsoft's code — missing,
+  unknown, expired, reused, and wrong-provider state are all rejected the
+  same way; the stored PKCE verifier goes into the token-exchange body;
+  errors redirect with a short generic code, never a token, verifier, or
+  Microsoft's own error text (logged server-side instead). `whatsapp-
+  webhook` (new) reads the raw POST body via `req.text()` and verifies
+  Meta's `X-Hub-Signature-256` against `whatsapp_config.meta_app_secret`
+  *before* any `JSON.parse`, rejecting with 401 first; a new
+  `whatsapp_webhook_events` table (message_id primary key,
+  insert-before-ack) makes redelivery a no-op instead of reprocessing,
+  and a genuine insert failure returns 500 so Meta retries rather than
+  silently dropping the message. `whatsapp-setup-tracking-template` and
+  `whatsapp-webhook-subscription` (both administrative, previously
+  unauthenticated) gained the standard `requireAuthorizedUser` guard with
+  no other logic change.
+- **Full function-authorization audit** (17 functions total): every one
+  requires an authorized session except two, both public by protocol-
+  level design rather than an oversight — `excel-oauth-callback`
+  (Microsoft's own redirect, no way to carry a bearer token; gated by
+  state+PKCE instead) and `whatsapp-webhook` (Meta's own server-to-server
+  call; gated by the signature above instead).
+- **Internal auth review.** The service-role-key-as-bearer-token special
+  case in `_shared/auth.ts` (added so `risk-recommendation` could call
+  `erp-inventory` internally) is removed outright — no current caller
+  needs a credential broader than this. `risk-recommendation` now
+  forwards the original caller's own `Authorization` header to
+  `erp-inventory`, which independently re-verifies that same real user
+  the same way a direct call would. No scheduled/cron job exists yet
+  that would need a narrower server-initiated credential; noted for if
+  one ever does.
+- **Rate limiting made race-safe.** The original check-then-insert
+  (`isShipmentInCooldown` + `logSend` as two round-trips) had a TOCTOU
+  gap two near-simultaneous requests could both slip through. A new
+  `claim_whatsapp_send_slot` Postgres function
+  (`pg_advisory_xact_lock`, `security definer`, `service_role`-only)
+  checks the window and inserts the log row as one atomic call;
+  `_shared/rateLimit.ts` gained `claimSendSlot`/`releaseSendSlot`
+  (compensates a claimed slot if the actual send then fails) built on
+  it, used by both `request-tracking-update` and `send-whatsapp-alert`.
+- **Tests.** 4 new Deno unit test files (36 new cases: `crypto_test.ts` —
+  `verifyMetaSignature` against a real HMAC-SHA256 including a wrong
+  secret/tampered body/missing header/malformed hex, PKCE against RFC
+  7636 Appendix B's own worked test vector, `randomToken`/`base64url`;
+  `cors_test.ts` — allowed/disallowed origin, preflight 204 vs 403, the
+  `ALLOWED_ORIGINS` override; `rateLimit_test.ts` — the pure cooldown/
+  claim-counting logic at and around window boundaries) plus a new
+  Playwright integration test (`dashboard_auth_test.js`, 10 checks): no
+  session → redirect to sign-in; an authorized session → dashboard
+  visible, profile shows the real email; a mocked 403 → banner shown; a
+  mocked 401 → signed out and redirected, confirmed the mock session was
+  actually cleared (not just a same-page flag) so index.html's own check
+  doesn't bounce straight back; the sign-in page's own two cases (no
+  session shows the form, an existing session redirects onward). The two
+  pre-existing integration tests (`dashboard_null_safety_test.js`,
+  `dashboard_regression_test.js`) had their now-obsolete
+  `sessionStorage.ruta_authed` bypass replaced with a stub of the
+  supabase-js CDN module and still pass exactly as before (12/12, 7/7) —
+  confirming the auth rewrite didn't regress the null-safety/regression
+  rendering work from the previous two passes. All 70 Deno unit tests and
+  all 29 integration checks pass. `deno check` is clean on every file
+  touched this pass; the same pre-existing type-inference gap documented
+  for `erp-inventory`'s `excelAdapter` parameter (a bare
+  `ReturnType<typeof createClient>` losing inference across a function
+  boundary without a generated Database type) was hit newly by
+  `_shared/rateLimit.ts`'s two new exported functions once
+  `request-tracking-update`/`send-whatsapp-alert` started calling them —
+  fixed there (not just documented, since it was blocking `deno test`
+  from running at all) by loosening `SupabaseAdmin` to `any`; left
+  undisturbed in `erp-inventory`/`excel-browse`/`excel-select-workbook`,
+  which this pass didn't touch.
+- **Not done this pass**: nothing was deployed, no migration was applied
+  to the live Supabase project, no credential was rotated, and no
+  external Meta/Microsoft configuration was changed, matching the task's
+  explicit instruction. The live system remains exactly as described in
+  `SECURITY_AND_PILOT_BLOCKERS.md` until the deployment plan there is
+  actually run.

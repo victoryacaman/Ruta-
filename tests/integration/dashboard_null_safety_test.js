@@ -51,7 +51,21 @@ const DECISIONS_PAYLOAD_DEMO_INCLUDED = {
 (async () => {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
   const page = await browser.newPage();
-  await page.addInitScript(() => sessionStorage.setItem('ruta_authed', '1'));
+  // SECURITY HARDENING (2026-09-23): the old sessionStorage.ruta_authed
+  // bypass no longer exists -- the dashboard now bootstraps a real
+  // Supabase Auth session via supabase-js. Stub the CDN module itself
+  // (rather than fight supabase-js's own localStorage session format)
+  // so the dashboard's bootstrap sees a fake, already-authorized session
+  // with zero real network dependency, matching this project's own
+  // "mock the client, not the wire format" testing convention.
+  await page.route('**/@supabase/supabase-js*', (route) => route.fulfill({
+    status: 200, contentType: 'application/javascript',
+    body: "window.supabase = { createClient: function(){ return { auth: { " +
+      "getSession: function(){ return Promise.resolve({ data: { session: { access_token: 'fake-test-token', user: { id: 'test-user-id', email: 'victoryacaman@gmail.com' } } }, error: null }); }, " +
+      "onAuthStateChange: function(){ return { data: { subscription: { unsubscribe: function(){} } } }; }, " +
+      "signOut: function(){ return Promise.resolve({ error: null }); } " +
+      "} }; } };",
+  }));
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 

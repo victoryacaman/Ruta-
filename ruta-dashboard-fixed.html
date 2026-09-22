@@ -4,17 +4,115 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Utopia — Supply resilience intelligence</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-// Lightweight deterrent, not real security -- see CLAUDE.md "Hosting &
-// access gate". Bounces back to the sign-in gate if this browser session
-// hasn't passed it. Absolute URL, not relative -- a relative 'index.html'
+// SECURITY HARDENING (2026-09-23): real Supabase Auth session, checked
+// against the server-side pilot_authorized_emails allowlist by every
+// protected Edge Function -- this client-side check is a UX convenience
+// (bounce unauthenticated visitors to sign-in fast) not the actual access
+// control. Absolute sign-in URL, not relative -- a relative 'index.html'
 // resolves to whatever file happens to share this file's folder (a real
 // bug found before presenting: emailing/downloading this file into a
 // folder next to an unrelated project's index.html silently redirected
 // there instead). Always land on the real hosted sign-in page.
-if(sessionStorage.getItem('ruta_authed') !== '1'){
-  window.location.replace('https://victoryacaman.github.io/Ruta-/index.html');
+var SIGNIN_URL = 'https://victoryacaman.github.io/Ruta-/index.html';
+var SUPABASE_URL = 'https://gcrnarueiybbavmkzhcv.supabase.co';
+var SUPABASE_ANON_KEY = 'sb_publishable_dZ99tI1TDEZw428Xn6VSGw_nWvIwWC4';
+var supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+var nativeFetch = window.fetch.bind(window);
+
+// Hidden until a real session is confirmed, so an unauthenticated visitor
+// never sees even a flash of dashboard content while getSession() (async)
+// resolves.
+document.documentElement.style.visibility = 'hidden';
+
+async function utopiaBootstrapAuth(){
+  var sessionResult = await supabaseClient.auth.getSession();
+  if(sessionResult.error || !sessionResult.data.session){
+    window.location.replace(SIGNIN_URL);
+    return;
+  }
+  document.documentElement.style.visibility = 'visible';
+  utopiaUpdateProfileUI(sessionResult.data.session);
 }
+
+supabaseClient.auth.onAuthStateChange(function(_event, session){
+  // Covers session expiry/refresh-failure while the dashboard is already
+  // open, not just the initial load.
+  if(!session){
+    window.location.replace(SIGNIN_URL);
+  }
+});
+
+function utopiaUpdateProfileUI(session){
+  var email = (session && session.user && session.user.email) || '';
+  function apply(){
+    var nameEl = document.getElementById('profileName');
+    var emailEl = document.getElementById('profileEmail');
+    var avatarEl = document.getElementById('profileAvatar');
+    if(nameEl) nameEl.textContent = email.split('@')[0] || 'Signed in';
+    if(emailEl) emailEl.textContent = email;
+    if(avatarEl) avatarEl.textContent = email.slice(0, 2).toUpperCase() || 'U';
+  }
+  // This script runs in <head>, so getSession() can resolve before the
+  // profile markup in <body> has even been parsed yet -- defer until
+  // it exists instead of silently no-op'ing on a still-null lookup.
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', apply);
+  } else {
+    apply();
+  }
+}
+
+async function utopiaSignOut(){
+  await supabaseClient.auth.signOut();
+  window.location.replace(SIGNIN_URL);
+}
+
+function utopiaShowNotAuthorized(){
+  if(document.getElementById('utopiaNotAuthorizedBanner')) return;
+  var el = document.createElement('div');
+  el.id = 'utopiaNotAuthorizedBanner';
+  el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999;background:#3a1f22;color:#ff8a8a;padding:12px 20px;text-align:center;font-size:12px;font-weight:700';
+  el.innerHTML = 'Your account is not authorized for this Utopia deployment. ' +
+    '<button onclick="utopiaSignOut()" style="margin-left:10px;background:#ff8a8a;color:#1a0f10;border:0;border-radius:6px;padding:4px 10px;cursor:pointer;font-weight:800">Sign out</button>';
+  document.body.appendChild(el);
+}
+
+// Every call to a protected Edge Function goes through this instead of
+// nativeFetch directly: attaches the current session's access_token as a
+// Bearer header, and reacts to the two auth failure modes a protected
+// function can return -- 401 (session invalid/expired -- back to
+// sign-in) and 403 (a real, currently-authenticated user who just isn't
+// on the pilot allowlist -- shown a banner instead of silently failing).
+async function authedFetch(url, options){
+  options = options || {};
+  var sessionResult = await supabaseClient.auth.getSession();
+  var session = sessionResult.data && sessionResult.data.session;
+  if(!session){
+    window.location.replace(SIGNIN_URL);
+    throw new Error('No active session');
+  }
+  var headers = {};
+  for(var k in (options.headers || {})) headers[k] = options.headers[k];
+  headers['Authorization'] = 'Bearer ' + session.access_token;
+  var merged = {};
+  for(var k2 in options) merged[k2] = options[k2];
+  merged.headers = headers;
+  var res = await nativeFetch(url, merged);
+  if(res.status === 401){
+    await supabaseClient.auth.signOut();
+    window.location.replace(SIGNIN_URL);
+    throw new Error('Session expired');
+  }
+  if(res.status === 403){
+    utopiaShowNotAuthorized();
+    throw new Error('Not authorized for this Utopia deployment');
+  }
+  return res;
+}
+
+utopiaBootstrapAuth();
 </script>
 <style>
 /*! tailwindcss v4.2.1 | MIT License | https://tailwindcss.com */
@@ -185,7 +283,7 @@ input[type],select{background:#0f0f12;border:1px solid #333338;color:var(--ink);
 </style>
 </head>
 <body class="antialiased">
-<div class="app-shell"><aside class="sidebar"><div class="brand"><span class="brand-mark">U</span><span>UTOPIA</span></div><nav class="nav" aria-label="Main navigation"><button class="nav-item active" data-view="command" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⌁</span><span>Command</span></button><button class="nav-item " data-view="risks" onclick="selectNav(this)"><span class="icon" aria-hidden="true">△</span><span>Risks</span></button><button class="nav-item " data-view="inventory" onclick="selectNav(this)"><span class="icon" aria-hidden="true">▦</span><span>Inventory</span></button><button class="nav-item " data-view="shipments" onclick="selectNav(this)"><span class="icon" aria-hidden="true">↗</span><span>Shipments</span></button><button class="nav-item " data-view="decisions" onclick="selectNav(this)"><span class="icon" aria-hidden="true">✓</span><span>Decisions</span></button></nav><div class="sidebar-bottom"><button class="nav-item add-tools-nav" data-view="add-tools" onclick="selectNav(this)"><span class="icon" aria-hidden="true">＋</span><span>Add tools</span></button><button class="nav-item " data-view="integrations" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⎋</span><span>Integrations</span></button><button class="nav-item" data-view="settings" onclick="selectNav(this)"><span class="icon" aria-hidden="true">·</span><span>Settings</span></button><button class="lang-toggle" id="langToggleBtn" onclick="toggleLang()" aria-label="Toggle language">ES</button><div class="profile"><span class="avatar">AV</span><span><strong>Ana Valle</strong><small>Procurement lead</small></span></div></div></aside><main class="main"><header class="topbar"><div><p class="eyebrow" id="todayLabel">…</p><h1>Good morning, Ana.</h1></div><div class="top-actions"><button class="sync" id="erpSyncButton" onclick="selectNav(document.querySelector('.nav-item[data-view=\'add-tools\']'))"><span class="pulse" id="erpSyncPulse" style="background:#c9d0d3;box-shadow:0 0 0 3px #eef1f2"></span>ERP: not connected <small>Sample data</small></button><button class="icon-button" aria-label="Notifications" onclick="showNotificationSummary()">♢<span class="notification-dot"></span></button></div></header><div class="mode-banner mode-banner-demo" id="modeBanner">
+<div class="app-shell"><aside class="sidebar"><div class="brand"><span class="brand-mark">U</span><span>UTOPIA</span></div><nav class="nav" aria-label="Main navigation"><button class="nav-item active" data-view="command" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⌁</span><span>Command</span></button><button class="nav-item " data-view="risks" onclick="selectNav(this)"><span class="icon" aria-hidden="true">△</span><span>Risks</span></button><button class="nav-item " data-view="inventory" onclick="selectNav(this)"><span class="icon" aria-hidden="true">▦</span><span>Inventory</span></button><button class="nav-item " data-view="shipments" onclick="selectNav(this)"><span class="icon" aria-hidden="true">↗</span><span>Shipments</span></button><button class="nav-item " data-view="decisions" onclick="selectNav(this)"><span class="icon" aria-hidden="true">✓</span><span>Decisions</span></button></nav><div class="sidebar-bottom"><button class="nav-item add-tools-nav" data-view="add-tools" onclick="selectNav(this)"><span class="icon" aria-hidden="true">＋</span><span>Add tools</span></button><button class="nav-item " data-view="integrations" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⎋</span><span>Integrations</span></button><button class="nav-item" data-view="settings" onclick="selectNav(this)"><span class="icon" aria-hidden="true">·</span><span>Settings</span></button><button class="lang-toggle" id="langToggleBtn" onclick="toggleLang()" aria-label="Toggle language">ES</button><div class="profile"><span class="avatar" id="profileAvatar">AV</span><span><strong id="profileName">Ana Valle</strong><small id="profileEmail">Procurement lead</small></span></div><button class="nav-item" id="signOutBtn" onclick="utopiaSignOut()"><span class="icon" aria-hidden="true">⏻</span><span>Sign out</span></button></div></aside><main class="main"><header class="topbar"><div><p class="eyebrow" id="todayLabel">…</p><h1>Good morning, Ana.</h1></div><div class="top-actions"><button class="sync" id="erpSyncButton" onclick="selectNav(document.querySelector('.nav-item[data-view=\'add-tools\']'))"><span class="pulse" id="erpSyncPulse" style="background:#c9d0d3;box-shadow:0 0 0 3px #eef1f2"></span>ERP: not connected <small>Sample data</small></button><button class="icon-button" aria-label="Notifications" onclick="showNotificationSummary()">♢<span class="notification-dot"></span></button></div></header><div class="mode-banner mode-banner-demo" id="modeBanner">
   <div class="mode-banner-text">
     <span class="mode-banner-tag" id="modeBannerTag">SCORING ENGINE: LIVE</span>
     <span id="modeBannerCopy">— the risk-brief card, Signal Watch, metrics, and Decision Queue below are all computed from real Open-Meteo + NOAA/NHC data combined with real math, evaluated around one configurable operational point (not a full route or multi-location network — see Settings). The underlying SKU inventory numbers shown here are sample data. The connector framework for Excel, Odoo, and SAP Business One is implemented — each real customer connection still needs credential setup, field validation, and potentially customer-specific mapping.</span>
@@ -716,7 +814,7 @@ function renderAll(result){
 
 async function loadRiskRecommendation(){
   try {
-    var res = await fetch(RISK_RECOMMENDATION_URL);
+    var res = await authedFetch(RISK_RECOMMENDATION_URL);
     var data = await res.json();
     if(!data.ok) throw new Error(data.error || 'risk-recommendation reported an error');
     renderAll(data);
@@ -744,7 +842,7 @@ document.addEventListener('DOMContentLoaded', function(){
   // settings endpoint would make the core risk display fragile against
   // that endpoint's own latency/uptime. Worst case here is a brief
   // flash of the default "L" symbol, self-corrected below.
-  fetch(RISK_LOCATION_SETTINGS_URL).then(function(res){ return res.json(); }).then(function(data){
+  authedFetch(RISK_LOCATION_SETTINGS_URL).then(function(res){ return res.json(); }).then(function(data){
     if(data.ok && data.config && data.config.currency_symbol){
       CURRENCY_SYMBOL = data.config.currency_symbol;
       // Only re-render if Command is still the visible view -- lastResult
@@ -790,7 +888,7 @@ function toggleWhy(){
 var RECOMMENDATION_ACTION_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/recommendation-action";
 function recordEvent(eventType){
   if(!lastResult || !lastResult.snapshotId) return;
-  fetch(RECOMMENDATION_ACTION_URL, {
+  authedFetch(RECOMMENDATION_ACTION_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ snapshotId: lastResult.snapshotId, eventType: eventType })
@@ -927,7 +1025,7 @@ async function loadShipments(){
   var listEl = document.getElementById('shipmentsList');
   if(!listEl) return;
   try {
-    var res = await fetch(SHIPMENTS_LIST_URL);
+    var res = await authedFetch(SHIPMENTS_LIST_URL);
     var data = await res.json();
     if(!data.ok) throw new Error(data.error || 'shipments-list reported an error');
     if(!data.shipments.length){
@@ -966,7 +1064,7 @@ async function addShipment(){
   var deadline = document.getElementById('shipDeadline').value;
   var description = document.getElementById('shipDescription').value.trim();
   try {
-    var res = await fetch(SHIPMENTS_CREATE_URL, {
+    var res = await authedFetch(SHIPMENTS_CREATE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ driverName: driverName, driverPhone: driverPhone, description: description, deadline: deadline ? new Date(deadline).toISOString() : null }),
@@ -1022,7 +1120,7 @@ async function loadInventory(){
   var listEl = document.getElementById('inventoryList');
   if(!listEl) return;
   try {
-    var res = await fetch(ERP_INVENTORY_URL);
+    var res = await authedFetch(ERP_INVENTORY_URL);
     var data = await res.json();
     if(!data.ok) throw new Error(data.error || 'erp-inventory reported an error');
 
@@ -1091,7 +1189,7 @@ function renderRisksView(){
     '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
     '</div>';
 
-  fetch(RISK_RECOMMENDATION_URL).then(function(res){ return res.json(); }).then(function(data){
+  authedFetch(RISK_RECOMMENDATION_URL).then(function(res){ return res.json(); }).then(function(data){
     if(!data.ok) throw new Error(data.error || 'risk-recommendation reported an error');
     var c = data.corridor;
     document.getElementById('risksLocationHeading').textContent = (data.locationName || tr('Your region', 'Tu región')) + ' — ' + severityLabel(c.severity);
@@ -1142,15 +1240,31 @@ var EXCEL_SELECT_WORKBOOK_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functi
 var pickedExcelFileId = null; // set once a file is chosen in the picker, read by saveExcelWorkbook()
 var pickedExcelFileName = null;
 
-function connectExcel(){
-  window.location.href = EXCEL_OAUTH_START_URL;
+async function connectExcel(){
+  // excel-oauth-start now requires an authorized session (it mints a
+  // real state+PKCE pair tied to this user), so a plain <a href>
+  // navigation can no longer reach it -- it returns the Microsoft
+  // authorize URL as JSON over an authenticated call, and only then do
+  // we navigate the browser there.
+  try {
+    var res = await authedFetch(EXCEL_OAUTH_START_URL);
+    var data = await res.json();
+    if(data && data.ok && data.authorizeUrl){
+      window.location.href = data.authorizeUrl;
+    } else {
+      alert((data && data.error) || 'Could not start the Excel connection. Please try again.');
+    }
+  } catch (err) {
+    // authedFetch already redirected/showed a banner for 401/403; any
+    // other error just gets a plain message.
+  }
 }
 
 function startExcelPicker(){
   var area = document.getElementById('excelPickerArea');
   if(!area) return;
   area.innerHTML = '<p class="settings-status-item">' + tr('Loading your OneDrive files…', 'Cargando tus archivos de OneDrive…') + '</p>';
-  fetch(EXCEL_BROWSE_URL + '?mode=files').then(function(res){ return res.json(); }).then(function(data){
+  authedFetch(EXCEL_BROWSE_URL + '?mode=files').then(function(res){ return res.json(); }).then(function(data){
     if(!data.ok) throw new Error(data.error || 'excel-browse failed');
     if(!data.files || data.files.length === 0){
       area.innerHTML = '<p class="settings-status-item">' + tr('No Excel files found in your OneDrive root. Make sure your workbook is saved directly in "My files", not inside a folder.', 'No se encontraron archivos de Excel en la raíz de tu OneDrive. Asegúrate de que tu libro esté guardado directamente en "Mis archivos", no dentro de una carpeta.') + '</p>';
@@ -1175,7 +1289,7 @@ function onExcelFileChosen(){
   pickedExcelFileId = fileId;
   pickedExcelFileName = select.options[select.selectedIndex].getAttribute('data-name');
   tableArea.innerHTML = '<p class="settings-status-item">' + tr('Loading tables…', 'Cargando tablas…') + '</p>';
-  fetch(EXCEL_BROWSE_URL + '?mode=tables&fileId=' + encodeURIComponent(fileId)).then(function(res){ return res.json(); }).then(function(data){
+  authedFetch(EXCEL_BROWSE_URL + '?mode=tables&fileId=' + encodeURIComponent(fileId)).then(function(res){ return res.json(); }).then(function(data){
     if(!data.ok) throw new Error(data.error || 'excel-browse failed');
     if(!data.tables || data.tables.length === 0){
       tableArea.innerHTML = '<p class="settings-status-item">' + tr('No tables found in this workbook — format your data as a Table in Excel first (Insert → Table).', 'No se encontraron tablas en este libro — da formato a tus datos como Tabla en Excel primero (Insertar → Tabla).') + '</p>';
@@ -1195,7 +1309,7 @@ function saveExcelWorkbook(){
   var tableSelect = document.getElementById('excelTablePicker');
   var tableName = tableSelect ? tableSelect.value : '';
   if(!tableName){ showToast(tr('Choose a table first.', 'Elige una tabla primero.')); return; }
-  fetch(EXCEL_SELECT_WORKBOOK_URL, {
+  authedFetch(EXCEL_SELECT_WORKBOOK_URL, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ fileId: pickedExcelFileId, fileName: pickedExcelFileName, tableName: tableName }),
   }).then(function(res){ return res.json(); }).then(function(data){
@@ -1203,7 +1317,7 @@ function saveExcelWorkbook(){
     showToast(tr('Workbook connected — Inventory will now read from it.', 'Libro conectado — Inventario ahora leerá de él.'));
     var area = document.getElementById('excelPickerArea');
     if(area) area.innerHTML = '';
-    fetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data2){
+    authedFetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data2){
       var tag = document.getElementById('addToolsCurrentProvider');
       if(tag) tag.textContent = data2.ok ? (data2.provider === 'demo' ? tr('Demo data', 'Datos de muestra') : tr('Live: ', 'En vivo: ') + data2.provider) : tr('Unavailable', 'No disponible');
     }).catch(function(){});
@@ -1234,7 +1348,7 @@ function renderIntegrationsView(){
       '<span class="integration-status integration-status-' + (r.status === 'live' ? 'live' : 'demo') + '">' + (r.status === 'live' ? 'Live' : '…') + '</span></div>';
   }).join('');
 
-  fetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
+  authedFetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
     var row = document.getElementById('erpIntegrationRow');
     if(!row) return;
     var provider = data.ok ? data.provider : 'unavailable';
@@ -1246,7 +1360,7 @@ function renderIntegrationsView(){
     row.querySelector('.integration-status').textContent = isDemo ? 'Demo data' : 'Live';
   }).catch(function(){});
 
-  fetch(EXCEL_STATUS_URL).then(function(res){ return res.json(); }).then(function(data){
+  authedFetch(EXCEL_STATUS_URL).then(function(res){ return res.json(); }).then(function(data){
     var row = document.getElementById('excelIntegrationRow');
     if(!row) return;
     var connected = data.ok && data.connected;
@@ -1302,7 +1416,7 @@ function renderSettingsView(){
     toggleCurrencyCustomRows(this.value === 'other');
   });
 
-  fetch(RISK_LOCATION_SETTINGS_URL).then(function(res){ return res.json(); }).then(function(data){
+  authedFetch(RISK_LOCATION_SETTINGS_URL).then(function(res){ return res.json(); }).then(function(data){
     if(!data.ok || !data.config) return;
     document.getElementById('setLocationName').value = data.config.location_name;
     document.getElementById('setLat').value = data.config.lat;
@@ -1320,7 +1434,7 @@ function renderSettingsView(){
     }
   }).catch(function(){});
 
-  fetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
+  authedFetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
     document.getElementById('setErpStatus').textContent = data.ok ? (data.provider === 'demo' ? tr('Demo data', 'Datos de muestra') : tr('Live: ', 'En vivo: ') + data.provider) : tr('Unavailable', 'No disponible');
   }).catch(function(){});
 
@@ -1344,7 +1458,7 @@ function renderSettingsView(){
       currencyCode: currencyCode,
       currencySymbol: currencySymbol,
     };
-    fetch(RISK_LOCATION_SETTINGS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    authedFetch(RISK_LOCATION_SETTINGS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function(res){ return res.json(); })
       .then(function(data){
         if(!data.ok) throw new Error(data.error || 'risk-location-settings reported an error');
@@ -1382,11 +1496,11 @@ function renderAddToolsView(){
     '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
     '</div>';
 
-  fetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
+  authedFetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
     document.getElementById('addToolsCurrentProvider').textContent = data.ok ? (data.provider === 'demo' ? tr('Demo data', 'Datos de muestra') : tr('Live: ', 'En vivo: ') + data.provider) : tr('Unavailable', 'No disponible');
   }).catch(function(){});
 
-  fetch(EXCEL_STATUS_URL).then(function(res){ return res.json(); }).then(function(data){
+  authedFetch(EXCEL_STATUS_URL).then(function(res){ return res.json(); }).then(function(data){
     var action = document.getElementById('excelToolAction');
     if(!action) return;
     if(data.ok && data.connected){
@@ -1441,7 +1555,7 @@ async function loadDecisions(){
   var listEl = document.getElementById('decisionsHistory');
   if(!listEl) return;
   try {
-    var res = await fetch(DECISIONS_LIST_URL);
+    var res = await authedFetch(DECISIONS_LIST_URL);
     var data = await res.json();
     if(!data.ok) throw new Error(data.error || 'decisions-list reported an error');
 
@@ -1490,7 +1604,7 @@ async function requestTracking(shipmentId, btn){
   var originalLabel = btn.textContent;
   btn.textContent = 'Sending…';
   try {
-    var res = await fetch(REQUEST_TRACKING_URL, {
+    var res = await authedFetch(REQUEST_TRACKING_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ shipmentId: shipmentId }),

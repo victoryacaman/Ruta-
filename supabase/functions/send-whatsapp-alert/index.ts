@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { corsHeaders, handlePreflight } from "../_shared/cors.ts";
-import { countRecentSendsByUser, logSend } from "../_shared/rateLimit.ts";
+import { claimSendSlot, releaseSendSlot } from "../_shared/rateLimit.ts";
 
 // Sends a WhatsApp message using the stored credentials.
 // whatsapp_config.access_token is expected to be a PERMANENT Meta
@@ -41,14 +41,20 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    if (auth.user) {
-      const recentSends = await countRecentSendsByUser(supabase, FUNCTION_NAME, auth.user.id, 60);
-      if (recentSends >= MAX_SENDS_PER_HOUR) {
+    // RACE-SAFETY (2026-09-23): atomic claim (see request-tracking-update
+    // for the same pattern) -- a count-then-insert here had the same
+    // TOCTOU gap two rapid-fire requests from one session could slip
+    // through.
+    let claimId: number | null = null;
+    {
+      const claim = await claimSendSlot(supabase, FUNCTION_NAME, null, auth.user.id, 60, MAX_SENDS_PER_HOUR);
+      if (!claim.allowed) {
         return new Response(
           JSON.stringify({ ok: false, error: `Rate limit: at most ${MAX_SENDS_PER_HOUR} WhatsApp sends per hour per user.` }),
           { status: 429, headers: corsHeaders(req) },
         );
       }
+      claimId = claim.claimId;
     }
 
     const { data: config, error: configError } = await supabase
@@ -75,7 +81,7 @@ Deno.serve(async (req: Request) => {
       };
     }
 
-    console.log(`send-whatsapp-alert: mode=${mode} by user=${auth.user?.id ?? "service_role"}`);
+    console.log(`send-whatsapp-alert: mode=${mode} by user=${auth.user.id}`);
 
     const waRes = await fetch(`https://graph.facebook.com/v25.0/${config.phone_number_id}/messages`, {
       method: "POST",
@@ -87,6 +93,7 @@ Deno.serve(async (req: Request) => {
     });
     const waJson = await waRes.json();
     if (!waRes.ok) {
+      await releaseSendSlot(supabase, claimId); // don't burn a rate-limit slot on a real failure
       if (waJson?.error?.code === 190) {
         throw new Error(
           `WhatsApp access token rejected as invalid (Graph API error 190): ${JSON.stringify(waJson.error)}. ` +
@@ -96,8 +103,6 @@ Deno.serve(async (req: Request) => {
       }
       throw new Error(`WhatsApp API returned ${waRes.status}: ${JSON.stringify(waJson)}`);
     }
-
-    await logSend(supabase, FUNCTION_NAME, null, auth.user?.id ?? null);
 
     return new Response(JSON.stringify({ ok: true, mode, to, whatsappResponse: waJson }), { headers: corsHeaders(req) });
   } catch (err) {

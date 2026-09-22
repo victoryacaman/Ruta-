@@ -35,7 +35,18 @@ const RISK_PAYLOAD_NORMAL = {
 (async () => {
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
   const page = await browser.newPage();
-  await page.addInitScript(() => sessionStorage.setItem('ruta_authed', '1'));
+  // SECURITY HARDENING (2026-09-23): see the identical stub in
+  // dashboard_null_safety_test.js -- the old sessionStorage.ruta_authed
+  // bypass no longer exists, so this fakes an already-authorized
+  // Supabase session at the supabase-js module level instead.
+  await page.route('**/@supabase/supabase-js*', (route) => route.fulfill({
+    status: 200, contentType: 'application/javascript',
+    body: "window.supabase = { createClient: function(){ return { auth: { " +
+      "getSession: function(){ return Promise.resolve({ data: { session: { access_token: 'fake-test-token', user: { id: 'test-user-id', email: 'victoryacaman@gmail.com' } } }, error: null }); }, " +
+      "onAuthStateChange: function(){ return { data: { subscription: { unsubscribe: function(){} } } }; }, " +
+      "signOut: function(){ return Promise.resolve({ error: null }); } " +
+      "} }; } };",
+  }));
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 

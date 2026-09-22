@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { corsHeaders, handlePreflight } from "../_shared/cors.ts";
-import { isShipmentInCooldown, logSend } from "../_shared/rateLimit.ts";
+import { claimSendSlot, logSend, releaseSendSlot } from "../_shared/rateLimit.ts";
 
 // Driver/provider WhatsApp tracking agent: sends the approved
 // tracking_request template to a shipment's driver, asking for a tracking
@@ -16,6 +16,13 @@ import { isShipmentInCooldown, logSend } from "../_shared/rateLimit.ts";
 //   -- the caller is already a known, authorized user at that point, so
 //   this is a deliberate "yes, send it again" override, not an open door.
 // - recipient/shipment are validated server-side before any send.
+//
+// RACE-SAFETY (2026-09-23): the cooldown check-and-record is now one
+// atomic claim (claimSendSlot -> claim_whatsapp_send_slot RPC), not a
+// separate SELECT then INSERT -- two near-simultaneous requests for the
+// same shipment can no longer both slip through. If the WhatsApp send
+// itself then fails, the claimed slot is released so a real failure
+// doesn't burn a cooldown window.
 
 const RESEND_COOLDOWN_MINUTES = 60;
 const FUNCTION_NAME = "request-tracking-update";
@@ -53,9 +60,10 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ ok: false, error: "Shipment has no valid driver_phone on file" }), { status: 400, headers: corsHeaders(req) });
     }
 
+    let claimId: number | null = null;
     if (!confirmResend) {
-      const inCooldown = await isShipmentInCooldown(supabase, FUNCTION_NAME, shipmentId, RESEND_COOLDOWN_MINUTES);
-      if (inCooldown) {
+      const claim = await claimSendSlot(supabase, FUNCTION_NAME, shipmentId, auth.user?.id ?? null, RESEND_COOLDOWN_MINUTES, 1);
+      if (!claim.allowed) {
         return new Response(
           JSON.stringify({
             ok: false,
@@ -65,6 +73,7 @@ Deno.serve(async (req: Request) => {
           { status: 429, headers: corsHeaders(req) },
         );
       }
+      claimId = claim.claimId;
     }
 
     const { data: config, error: configError } = await supabase
@@ -103,6 +112,7 @@ Deno.serve(async (req: Request) => {
     const waJson = await waRes.json();
 
     if (!waRes.ok) {
+      await releaseSendSlot(supabase, claimId); // don't burn a cooldown slot on a real failure
       const msg = waJson?.error?.message || "";
       const isTemplateIssue = /template/i.test(msg) || waJson?.error?.error_subcode === 132001 || waJson?.error?.code === 132000;
       const error = isTemplateIssue
@@ -115,7 +125,12 @@ Deno.serve(async (req: Request) => {
       status: "tracking_requested",
       last_contacted_at: new Date().toISOString(),
     }).eq("id", shipmentId);
-    await logSend(supabase, FUNCTION_NAME, shipmentId, auth.user?.id ?? null);
+    if (confirmResend) {
+      // The cooldown check was bypassed above, but this send still needs
+      // to count toward a FUTURE cooldown window -- record it
+      // unconditionally rather than through the gating claim.
+      await logSend(supabase, FUNCTION_NAME, shipmentId, auth.user?.id ?? null);
+    }
 
     return new Response(JSON.stringify({ ok: true, whatsappResponse: waJson }), { headers: corsHeaders(req) });
   } catch (err) {

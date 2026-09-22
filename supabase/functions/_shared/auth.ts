@@ -3,22 +3,27 @@
 // any request body or doing any real work; if result.ok is false, return
 // result.response immediately.
 //
-// Two ways to pass:
-// 1. The bearer token IS this project's own SUPABASE_SERVICE_ROLE_KEY --
-//    a trusted internal call from one of this project's own Edge
-//    Functions (e.g. risk-recommendation calling erp-inventory). Not a
-//    new secret: every Edge Function already has this key in its own
-//    environment, so this reuses the existing stack rather than
-//    inventing an internal token.
-// 2. The bearer token is a real Supabase Auth user JWT, verified via
-//    Supabase Auth, AND that user's email is present in
-//    pilot_authorized_emails. A valid session alone is not enough --
-//    both checks must pass.
+// The bearer token must be a real Supabase Auth user JWT, verified via
+// Supabase Auth, AND that user's email must be present in
+// pilot_authorized_emails. A valid session alone is not enough -- both
+// checks must pass.
 //
-// Never logs a full token or the service_role key -- only a short
-// fingerprint and, on failure, the reason.
+// INTERNAL AUTH REVIEW (2026-09-23): earlier code also accepted this
+// project's own SUPABASE_SERVICE_ROLE_KEY as a bearer token, so
+// risk-recommendation could call erp-inventory internally. Removed --
+// there is no current caller that needs it (risk-recommendation now
+// forwards the ORIGINAL caller's own Authorization header instead, so
+// erp-inventory verifies the real end-user the same way a direct call
+// would), and the service_role key is a much broader credential than
+// this narrow need justified carrying between functions. If a genuine
+// server-initiated job (no end-user in the loop -- e.g. a future cron)
+// ever needs to call one of these, it should get its own narrowly-scoped
+// secret checked by a dedicated code path, not a blanket re-grant of
+// this key's full privileges.
+//
+// Never logs a full token -- only a short fingerprint and, on failure,
+// the reason.
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { timingSafeStringEqual } from "./crypto.ts";
 import { corsHeaders } from "./cors.ts";
 
 export interface AuthUser {
@@ -27,7 +32,7 @@ export interface AuthUser {
 }
 
 export type AuthResult =
-  | { ok: true; user: AuthUser | null; isServiceRole: boolean }
+  | { ok: true; user: AuthUser }
   | { ok: false; response: Response };
 
 function fingerprint(token: string): string {
@@ -51,22 +56,18 @@ export async function requireAuthorizedUser(req: Request): Promise<AuthResult> {
     return { ok: false, response: jsonError(req, 401, "Missing Authorization bearer token") };
   }
 
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  if (serviceRoleKey && timingSafeStringEqual(token, serviceRoleKey)) {
-    return { ok: true, user: null, isServiceRole: true };
-  }
-
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  if (!supabaseUrl) {
-    console.error("auth: SUPABASE_URL not configured");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error("auth: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not configured");
     return { ok: false, response: jsonError(req, 401, "Server misconfigured") };
   }
 
-  // A plain, unprivileged client whose only job is to ask Supabase Auth
-  // "whose token is this" -- getUser() verifies the JWT signature/expiry
-  // against Supabase Auth itself, it does not trust the token's claims
+  // A plain client whose only job is to ask Supabase Auth "whose token
+  // is this" -- getUser() verifies the JWT signature/expiry against
+  // Supabase Auth itself, it does not trust the token's own claims
   // blindly.
-  const authClient = createClient(supabaseUrl, serviceRoleKey || token);
+  const authClient = createClient(supabaseUrl, serviceRoleKey);
   const { data, error } = await authClient.auth.getUser(token);
   if (error || !data?.user?.email) {
     console.warn(`auth: token verification failed for ${fingerprint(token)}: ${error?.message ?? "no user on token"}`);
@@ -75,10 +76,6 @@ export async function requireAuthorizedUser(req: Request): Promise<AuthResult> {
 
   const email = data.user.email.toLowerCase();
 
-  if (!serviceRoleKey) {
-    console.error("auth: SUPABASE_SERVICE_ROLE_KEY not configured, cannot check allowlist");
-    return { ok: false, response: jsonError(req, 401, "Server misconfigured") };
-  }
   const admin = createClient(supabaseUrl, serviceRoleKey);
   const { data: allowRow, error: allowError } = await admin
     .from("pilot_authorized_emails")
@@ -94,5 +91,5 @@ export async function requireAuthorizedUser(req: Request): Promise<AuthResult> {
     return { ok: false, response: jsonError(req, 403, "Your account is not authorized for this Utopia deployment") };
   }
 
-  return { ok: true, user: { id: data.user.id, email }, isServiceRole: false };
+  return { ok: true, user: { id: data.user.id, email } };
 }

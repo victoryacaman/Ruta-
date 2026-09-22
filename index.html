@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Utopia — Sign in</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--ink:#e8e8ec;--muted:#8a8a92;--line:#2a2a30;--paper:#0a0a0d;--navy:#1c1c22;--teal:#f2f2f5;--orange:#ff4444;--card:#141417}
 *{box-sizing:border-box}
@@ -16,36 +17,71 @@ p{color:var(--muted);font-size:12.5px;margin:0 0 20px;line-height:1.5}
 input{width:100%;background:#0a0a0d;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:14px;margin-bottom:12px}
 button{width:100%;background:var(--teal);color:#0a0a0d;border:0;border-radius:8px;padding:12px;font-size:13px;font-weight:700;cursor:pointer}
 button:hover{background:#d4d4d9}
+button:disabled{opacity:.6;cursor:default}
 .error{color:var(--orange);font-size:11.5px;margin:-4px 0 12px;display:none}
 .error.show{display:block}
+.sent{display:none;font-size:12.5px;line-height:1.5;color:var(--ink)}
+.sent.show{display:block}
 </style>
 </head>
 <body>
 <div class="card">
   <div class="brand"><span class="brand-mark">U</span><span>UTOPIA</span></div>
   <h1>Sign in</h1>
-  <p>This is a private pilot-prep preview. Enter the access code to continue.</p>
+  <p>This is a private pilot-prep preview. Enter your email and we'll send you a one-time sign-in link.</p>
   <form id="gateForm">
-    <input type="password" id="pw" placeholder="Access code" autocomplete="current-password" autofocus>
-    <div class="error" id="err">Incorrect code — try again.</div>
-    <button type="submit">Continue</button>
+    <input type="email" id="email" placeholder="you@company.com" autocomplete="email" autofocus required>
+    <div class="error" id="err"></div>
+    <button type="submit" id="submitBtn">Send magic link</button>
   </form>
+  <div class="sent" id="sentMsg">Check your email for a sign-in link. It expires after a short time, so use it soon.</div>
 </div>
 <script>
-// Lightweight deterrent, not real security -- see CLAUDE.md "Hosting & access
-// gate" for exactly what this does and doesn't protect against, and what a
-// real pilot needs instead before any real ERP data flows through this.
-var ACCESS_CODE = "PuertoCortes2026";
+// SECURITY HARDENING (2026-09-23): replaces the old client-side
+// ACCESS_CODE gate (a single shared password, checked entirely in
+// browser JS -- a deterrent, never real access control, per CLAUDE.md's
+// old "Hosting & access gate" note) with real Supabase Auth. This page
+// only ever starts the sign-in (email magic link/OTP); the actual access
+// control is server-side -- every protected Edge Function independently
+// verifies the resulting session AND checks the signed-in email against
+// pilot_authorized_emails (see supabase/functions/_shared/auth.ts). A
+// valid Supabase session alone is not proof of authorization -- an
+// unrecognized email can still request a link and sign in, but every
+// real action will come back 403 until an operator adds that email to
+// the allowlist.
+var SUPABASE_URL = 'https://gcrnarueiybbavmkzhcv.supabase.co';
+var SUPABASE_ANON_KEY = 'sb_publishable_dZ99tI1TDEZw428Xn6VSGw_nWvIwWC4';
+var DASHBOARD_URL = 'https://victoryacaman.github.io/Ruta-/ruta-dashboard-fixed.html';
+var supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-document.getElementById('gateForm').addEventListener('submit', function(e){
-  e.preventDefault();
-  var val = document.getElementById('pw').value;
-  if(val === ACCESS_CODE){
-    sessionStorage.setItem('ruta_authed', '1');
-    window.location.href = 'ruta-dashboard-fixed.html';
-  } else {
-    document.getElementById('err').classList.add('show');
+(async function redirectIfAlreadySignedIn(){
+  var sessionResult = await supabaseClient.auth.getSession();
+  if(sessionResult.data && sessionResult.data.session){
+    window.location.replace(DASHBOARD_URL);
   }
+})();
+
+document.getElementById('gateForm').addEventListener('submit', async function(e){
+  e.preventDefault();
+  var email = document.getElementById('email').value.trim();
+  var errEl = document.getElementById('err');
+  var btn = document.getElementById('submitBtn');
+  errEl.classList.remove('show');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  var result = await supabaseClient.auth.signInWithOtp({
+    email: email,
+    options: { emailRedirectTo: DASHBOARD_URL },
+  });
+  btn.disabled = false;
+  btn.textContent = 'Send magic link';
+  if(result.error){
+    errEl.textContent = result.error.message || 'Could not send the sign-in link. Please try again.';
+    errEl.classList.add('show');
+    return;
+  }
+  document.getElementById('gateForm').style.display = 'none';
+  document.getElementById('sentMsg').classList.add('show');
 });
 </script>
 </body>

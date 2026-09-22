@@ -11,11 +11,11 @@ import { validateAndNormalizeAll, type RawSkuInput } from "./validation.ts";
 // {ok, provider, fetchedAt, items, rejectedCount}.
 //
 // SECURITY HARDENING (2026-09-22): this function returns real customer
-// inventory once a real ERP/Excel is connected, so it's no longer
-// left open -- every request must carry either a valid, allowlisted
-// user session, or this project's own service_role key (used by
-// risk-recommendation's internal call below). See
-// supabase/functions/_shared/auth.ts.
+// inventory once a real ERP/Excel is connected, so it's no longer left
+// open -- every request must carry a valid, allowlisted user session.
+// risk-recommendation's own internal call to this function forwards the
+// original caller's real token rather than a broad internal credential
+// (see _shared/auth.ts and risk-recommendation/index.ts, 2026-09-23).
 //
 // DATA INTEGRITY HARDENING (2026-09-22): every adapter below used to
 // collapse a genuinely-missing unitCost/unitPrice/reorderPoint into a
