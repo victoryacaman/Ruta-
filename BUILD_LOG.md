@@ -459,3 +459,177 @@ was split into this file plus `UTOPIA_CURRENT_SPEC.md`,
 against the live code rather than carried forward as previously written.
 See the task summary delivered alongside this change for the full list of
 corrections made and claims that could not be confirmed either way.
+
+## 2026-09-22 — Security hardening: real auth, OAuth/webhook fixes (written, not deployed)
+
+A full pass to close the gaps `SECURITY_AND_PILOT_BLOCKERS.md` had just
+documented, implemented as code and migrations committed to the repo
+(`supabase/` tree) but **deliberately not deployed or applied** —
+correct on request from a task that explicitly said not to touch
+production without confirmation first. This entry documents what was
+built; `SECURITY_AND_PILOT_BLOCKERS.md` has been updated to say what's
+now fixed-in-code vs. still-live-as-before pending that deployment.
+
+- **Real Supabase Auth, replacing the client-side access code.** A new
+  `pilot_authorized_emails` allowlist table (service_role only) plus a
+  shared Edge Function helper (`supabase/functions/_shared/auth.ts`)
+  that every protected function calls first: reads the bearer token,
+  verifies it with Supabase Auth, checks the authenticated email against
+  the allowlist, returns 401 for missing/invalid auth and 403 for a
+  valid-but-unauthorized account. A second path lets this project's own
+  Edge Functions call each other using the shared `SUPABASE_SERVICE_ROLE_KEY`
+  as a trusted internal credential (e.g. `risk-recommendation` calling
+  `erp-inventory`) — reusing the existing stack rather than inventing a
+  new internal secret. Chosen sign-in method: email magic-link
+  (Supabase Auth's built-in OTP), a deliberate default (no password to
+  manage, fits a small pilot-user list) rather than something asked for
+  and not yet confirmed with the user.
+- **12 of the functions that read customer data, change config, record
+  actions, or send messages** now call that guard:
+  `erp-inventory`, `risk-recommendation`, `excel-status`, `excel-browse`,
+  `excel-select-workbook`, `risk-location-settings`, `shipments-list`,
+  `shipments-create`, `request-tracking-update`, `decisions-list`,
+  `recommendation-action`, `send-whatsapp-alert`. Three more identified
+  as needing the same treatment
+  (`excel-oauth-start`, `whatsapp-setup-tracking-template`,
+  `whatsapp-webhook-subscription`) were not yet rewritten when this pass
+  was paused to do the data-integrity work in the next entry — open.
+- **Restricted CORS** (`supabase/functions/_shared/cors.ts`) replacing
+  the old blanket `Access-Control-Allow-Origin: *` on every function
+  above: an explicit allow-list (the real production origin, plus
+  configured local-dev origins via an `ALLOWED_ORIGINS` secret), with a
+  disallowed origin's preflight getting a 403 and no CORS headers at all
+  rather than a wrong-but-present header.
+- **Microsoft OAuth state/PKCE, real this time.** New `oauth_states`
+  table (state, requesting user, PKCE code_verifier, expiry, used-once
+  flag). `excel-oauth-start` now requires an authorized user's bearer
+  token to even generate a state, and returns the Microsoft authorize
+  URL as JSON (a fetch response) rather than 302-redirecting itself —
+  necessary so the initiating call can carry an Authorization header at
+  all, which a plain link click never could. (`excel-oauth-callback`
+  itself was not yet rewritten to validate/consume that state when this
+  pass paused — still reads the old code, so the actual CSRF fix isn't
+  live yet even in the written-but-undeployed code. Tracked as open,
+  not silently assumed done.)
+- **Meta webhook signature verification, designed but not yet written
+  into `whatsapp-webhook` itself** — `_shared/crypto.ts` has the
+  constant-time HMAC-SHA256 verifier (`verifyMetaSignature`, checked
+  against the raw request body) ready to wire in, plus a
+  `whatsapp_webhook_events` idempotency table (one row per Meta message
+  id) and a `whatsapp_config.meta_app_secret` column via migration. The
+  actual rewrite of `whatsapp-webhook`'s `Deno.serve` handler to call
+  `verifyMetaSignature` before parsing anything, and to only ack 200
+  after a durable, deduplicated write, was not reached before this pass
+  paused — the live function's real gap (documented in
+  `SECURITY_AND_PILOT_BLOCKERS.md`) is not actually closed yet, only
+  scaffolded.
+- **Outbound-messaging rate limiting, done.** `_shared/rateLimit.ts` plus
+  a `whatsapp_send_log` table: `request-tracking-update` now enforces a
+  60-minute per-shipment resend cooldown (bypassable only by an
+  authorized caller explicitly passing `confirmResend:true`, not by an
+  anonymous one — the auth gate above is what actually makes that safe);
+  `send-whatsapp-alert` gets a generic 10-sends-per-hour-per-user limit
+  as defense-in-depth once it's auth-gated. Both also validate the
+  recipient as a plausible phone number server-side now.
+- **Not started this pass**: the dashboard's own frontend (`index.html`,
+  `ruta-dashboard-fixed.html`) still uses the old shared access-code gate
+  — no `supabase-js` wiring, no per-request bearer token on any `fetch()`
+  call site, no sign-out flow. Every function above already requires
+  auth in code, so once deployed, the dashboard would break until this
+  is done. This is the single biggest remaining piece of this pass.
+
+## 2026-09-22 — Data integrity, conservative transfers, decision-metrics honesty
+
+Built on top of the (paused, undeployed) security pass above rather
+than the older deployed functions, since both changes need to land in
+the same files eventually. Also not deployed.
+
+- **Null vs. zero, enforced in one place.** New
+  `erp-inventory/validation.ts`: every adapter's raw output — including
+  the pre-existing `?? 0`/`|| 0` fallbacks in the SAP B1, Excel, and
+  ZafraCloud adapters that had already caused one real "$0" bug (see the
+  2026-09-16 entry above) — now passes through untouched, and this one
+  module decides null (genuinely unknown) vs. a real number, rejects
+  malformed SKUs outright, and flags negative/non-finite values instead
+  of trusting them.
+- **Scoring engine stops coercing null to 0.** New
+  `risk-recommendation/scoring.ts` (extracted from the inline
+  `Deno.serve` logic specifically so it's unit-testable without a live
+  project): `unitsShort * item.unitPrice` used to silently become `0`
+  when `unitPrice` was `null` — plain JS arithmetic makes that easy to
+  miss. Sales exposure is now `null` with a stated reason on that
+  specific SKU when its price is unknown; the aggregate flags
+  `exposureIncomplete` and suppresses `roiMultiple` (returns `null` with
+  `roiUnavailableReason`) rather than compute a ratio from a partial sum.
+  Also fixed a related latent bug: `avgDailyUnitsSold === 0` (a SKU that
+  genuinely never sells) was being treated identically to
+  `avgDailyUnitsSold == null` (`if(!item.avgDailyUnitsSold) continue`,
+  both falsy) — now `0` correctly resolves to "infinite safety stock,
+  not at risk" instead of "no data, skip".
+- **Transfers now distinguish verified-safe from merely candidate.** No
+  adapter has ever fetched a source (alternate) warehouse's own reorder
+  point, so every transfer recommendation was silently treating "has
+  units on hand" as "safe to take those units" with no check against
+  that warehouse's own needs. `scoring.ts` now only marks a transfer
+  `"verified"` when that source-side reorder point is known and the
+  proposed amount wouldn't breach it; otherwise (today: always, for
+  every adapter) it's `"candidate_pending_source_verification"`, capped
+  at whatever amount actually is confirmed safe if partial data exists.
+  The alternate-warehouse shape gained optional
+  `sourceReorderPoint`/`sourceAvgDailyUnitsSold` fields for this — all
+  five adapters currently emit `null` for both, honestly, rather than a
+  guessed value; Excel's header-matching (already the mechanism for
+  every other field) was extended with aliases for these two in case a
+  customer's own sheet already tracks them.
+- **Decision-history stops inflating itself.** `risk_snapshots` gained
+  `environment` (demo/pilot/development/unknown, classified from
+  `erp_config.provider` at compute time — not asked of the caller, who
+  has no more insight into this than the server does),
+  `computation_source` (page_load/manual_refresh/scheduled/test, from a
+  `?source=` param the dashboard doesn't send yet — defaults to
+  page_load, matching every real caller today), a deterministic
+  `signal_fingerprint` (SHA-256 over the material inputs: location,
+  severity, expected delay, ERP provider, and each at-risk SKU's
+  shortfall/transfer amount — deliberately not the full response, so
+  timestamps/raw weather arrays don't make every call look unique), and
+  a `computation_count`/`last_computed_at` pair. A repeat computation
+  with the same fingerprint within 5 minutes now increments that counter
+  on the existing row instead of inserting a new one. Existing rows get
+  `environment='unknown'`/`computation_source='unknown'` via the
+  migration's own column defaults — not deleted, not relabeled as
+  something they weren't.
+- **`decisions-list` reports a real "decision coverage" metric**
+  (acted-upon applicable recommendations ÷ distinct recommendations
+  shown) alongside the pre-existing approval rate, and now defaults to
+  `environment='pilot'` rows only (always excluding
+  `computation_source='test'` regardless of scope) rather than counting
+  every demo/dev computation as if it were real pilot activity. A
+  `?scope=all` param recovers everything for exploring engagement
+  pre-pilot; the response says which scope was used and whether
+  non-pilot data is included (`demoDataIncluded`), and the dashboard's
+  Decisions view now shows a "demo data included" banner when that's
+  true instead of blending it in silently.
+- **Dashboard copy corrected to match actual scope** (the mode banner
+  and Settings intro both used to imply more than a single configurable
+  point is monitored, and that ERP integration is pure configuration
+  with no engineering risk) — both now state the real scope plainly, in
+  both languages.
+- **Dashboard rendering**: `formatMoneyOrUnavailable`/
+  `formatExposureOrUnavailable` helpers render "Not available"/"No
+  disponible" (with a stated reason for the per-SKU case) instead of
+  `L 0` whenever the underlying value is genuinely unknown; the Decision
+  Queue card shows a **CANDIDATE — PENDING VERIFICATION** tag and an
+  explanatory "why" line whenever `anyUnverifiedTransfers` is true; the
+  Decisions view gained a "decision coverage" metric tile and the demo-
+  data-included banner above.
+- **Verified**: 34 Deno unit tests (validation, scoring, fingerprint
+  determinism, decision-metrics denominators) plus two real headless-
+  browser passes against the actual dashboard file — one exercising the
+  new null-safety/candidate-transfer rendering in both languages, one
+  confirming a normal fully-known-data case still renders exactly as
+  before (no regression). All passing.
+- **Not done this pass**: nothing here was deployed or applied to the
+  live Supabase project, matching the task's own instruction not to
+  without confirmation first. The security pass's own unfinished pieces
+  (listed above) remain unfinished — this data-integrity work was built
+  on top of that pass's partial code, not instead of finishing it.

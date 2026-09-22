@@ -156,16 +156,28 @@ input:
    doesn't know).
 2. **Expected delay by severity** — a disclosed modeling assumption (0 / 5 /
    10 days), not yet tuned to a real pilot's actual carrier lead times.
-3. **Per SKU** (skipped if no sales-velocity data exists): if
+3. **Per SKU** (skipped if on-hand units or sales velocity is unknown; a
+   genuine zero sales velocity correctly resolves to "infinite safety
+   stock, not at risk" rather than being treated as missing data): if
    `onHandUnits / avgDailyUnitsSold` is less than the expected delay, the
-   shortfall in units × unit price = that SKU's sales exposure. If an
-   alternate warehouse has stock, a transfer of `min(shortfall, available)`
-   units is costed at a **per-unit trucking rate read from config**
-   (`risk_location_config.transfer_cost_per_unit_lps`, not a hardcoded
-   constant — see `BUILD_LOG.md` for when this changed).
-4. **Aggregate** — total exposure, total transfer cost, total transfer
-   units, and an ROI multiple (exposure ÷ transfer cost) — a computed,
-   auditable ratio, not a fabricated confidence percentage.
+   shortfall in units × unit price = that SKU's sales exposure — **or
+   `null` with a stated reason if unit price itself is unknown, never a
+   silent L0** (see `BUILD_LOG.md`'s 2026-09-22 "Data integrity" entry;
+   code committed, not yet deployed). If an alternate warehouse has
+   stock, a candidate transfer of `min(shortfall, available)` units is
+   costed at a **per-unit trucking rate read from config**
+   (`risk_location_config.transfer_cost_per_unit_lps`). That transfer is
+   only ever labeled **verified** when the source warehouse's own
+   reorder point is known and wouldn't be breached — no adapter supplies
+   that today, so every transfer currently reports **"candidate pending
+   source-warehouse verification"** rather than being presented as ready
+   to act on.
+4. **Aggregate** — total exposure (or a stated "incomplete" flag if any
+   SKU's exposure is unknown), total transfer cost, total transfer
+   units, and an ROI multiple (exposure ÷ transfer cost) — suppressed to
+   `null` with a reason rather than computed from a partial sum when
+   exposure is incomplete. A computed, auditable ratio when available,
+   never a fabricated confidence percentage.
 5. **No recommendation is manufactured when none is warranted** — if
    severity is low, or every SKU has enough stock to cover the expected
    delay, the response says so plainly instead of inventing an alert.
