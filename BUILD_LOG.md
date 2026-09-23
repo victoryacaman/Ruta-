@@ -1358,3 +1358,49 @@ anywhere in this project's history.
 - **Not done this pass:** the frontend was not redeployed (unchanged,
   confirmed still byte-identical to the repo); nothing outside the
   ordered Section B/C steps above was touched.
+
+## 2026-09-24 — Security incident: Meta app secret briefly exposed and rotated during Row 11 testing
+
+Recorded honestly, in full, per this project's own standard for not
+hiding a real finding. Contained quickly; no evidence of any other
+credential being affected.
+
+- **What happened.** Testing Section C row 11 (a valid Meta webhook
+  signature) required computing a real HMAC-SHA256 signature with the
+  live `meta_app_secret`. The first attempt had the owner paste the
+  secret directly into an `openssl -hmac "..."` command in Terminal,
+  then screenshot the terminal to share the output with the assistant
+  — the screenshot captured the full command line, including the
+  secret in plaintext, since a terminal displays the command it ran,
+  not just its result. That screenshot was shared in the session.
+- **Immediate response.** The assistant flagged the exposure the
+  moment it appeared, declined to repeat or re-display the value
+  anywhere, and recommended rotating the secret rather than treating
+  the exposure as low-risk. The owner reset the Meta app secret via
+  Meta App Dashboard -> Settings -> Basic, with the old-secret grace
+  period set to **0 hours** (no lingering validity for the exposed
+  value), and updated `whatsapp_config.meta_app_secret` with the new
+  one via the Supabase Table Editor.
+- **Verified working, not just assumed rotated.** A second signature
+  test used a safer local computation this time — the secret was
+  written to a temporary local file, referenced via `$(cat
+  secret.txt)` inside the `openssl` command (so the literal value
+  never appeared in the visible command text or shell history), then
+  the file was deleted immediately after. The resulting signature was
+  tested live against `whatsapp-webhook` and confirmed `status=
+  'completed'` — proving the new secret is correctly in place and
+  functioning, not just that the reset button was clicked. Both test
+  rows (the one signed with the now-invalidated old secret, and the
+  one signed with the new one) were deleted from
+  `whatsapp_webhook_events` afterward.
+- **Section C rows 11 and 13 both pass** as a result — row 11 (valid
+  signature -> `200`, `status='completed'`) confirmed twice (once
+  with the old secret before rotation, once with the new secret
+  after); row 13 (duplicate delivery of the same signed payload ->
+  no-op, `attempt_count` unchanged) confirmed once, before rotation,
+  against the first test message.
+- **Not done:** no other credential in this project was touched,
+  viewed, or suspected of exposure. The owner's shell history file may
+  still contain the old (now-rotated, invalidated) secret in plain
+  text from the first attempt — noted as low-priority cleanup, since
+  that value no longer grants anything.

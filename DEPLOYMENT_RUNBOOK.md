@@ -419,15 +419,20 @@ Dashboard version/commit already live:  ae541c8 (unchanged; confirmed
   byte-identical to the repo before this release, no frontend redeploy
   was part of this pass)
 Tester name/email:          victoryacaman@gmail.com (owner)
-Test outcome (Section C, # 1-21):  12 / 21 run and passed; 9 deferred
+Test outcome (Section C, # 1-21):  14 / 21 run and passed; 7 deferred
   (not failed — see exceptions below). Passed: 1, 3, 4, 5, 7, 8, 10,
-  12, 17 (data-level), 18, 20, 21.
+  11, 12, 13, 17 (data-level), 18, 20, 21.
   (Section F's staging-only reliability tests are never run against
   production and are not part of this count.)
 Webhook failure monitoring check performed (Section G):  [x]
   failed/gave_up/stale-processing count at check time: 0 (empty result
   set — no rows in any of those states)
   all explained/resolved:  yes (nothing to explain — clean)
+Security note: the Meta app secret was rotated mid-verification after
+  being briefly exposed in a local terminal screenshot during row 11's
+  test (see BUILD_LOG.md's 2026-09-24 entry for the full incident
+  record). The new secret was confirmed working before this record was
+  finalized. No other credential was affected.
 Remaining exceptions or deferred items:
   - Rows 2, 6 (non-allowlisted email -> 403): blocked by Supabase
     Auth's own email-sending rate limit during this session, not a
@@ -437,11 +442,6 @@ Remaining exceptions or deferred items:
   - Row 9 (real Microsoft OAuth connect flow): not run this pass —
     the existing Excel connection was left untouched rather than
     re-authorizing it unnecessarily.
-  - Row 11 (valid Meta webhook signature): needs either a real
-    inbound WhatsApp reply or the owner computing a signature locally
-    with their own copy of the app secret — not run this pass.
-  - Row 13 (duplicate delivery, completed): depends on row 11 first
-    producing a genuinely completed event — not run this pass.
   - Row 14 (WhatsApp rate-limit safe procedure): the dedicated second
     test identity (Section A precondition 11) was never actually set
     up — not run this pass.
