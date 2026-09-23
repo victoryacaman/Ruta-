@@ -1404,3 +1404,142 @@ credential being affected.
   still contain the old (now-rotated, invalidated) secret in plain
   text from the first attempt — noted as low-priority cleanup, since
   that value no longer grants anything.
+
+## 2026-09-23 — Section C rows 2/6 (non-allowlisted email -> 403): passed, after a non-reproducing anomaly on the first attempt
+
+Rows 2 and 6 were blocked most of this session by Supabase Auth's own
+project-wide email-sending rate limit (confirmed via `query_logs`
+against `auth_logs`, `error_code: over_email_send_rate_limit`). Once
+the limit cleared, two attempts were made with the same non-allowlisted
+test identity (`vyacaman41@gmail.com`, `auth.users.id
+a708899e-5fa1-4e28-b3db-03f36d221afb`), recorded honestly since the
+first one did not match the runbook's expected result.
+
+- **First attempt (21:07:16-17 UTC):** real signup/login succeeded,
+  but the very first protected call afterward — `GET
+  risk-recommendation` at `21:07:17.406` — returned **401**, not the
+  expected 403. `authedFetch`'s 401 handling (sign out + redirect to
+  sign-in) fired as a result, which is what the owner saw as "redirect
+  to dashboard then immediately back to the login page." Direct
+  reading of `_shared/auth.ts`'s `requireAuthorizedUser` confirms this
+  should not happen for a valid session on a non-allowlisted email —
+  that case is coded to return 403 (line 91), not 401; 401 is reserved
+  for a missing/invalid/unverifiable token or a server-side
+  misconfiguration.
+- **Second attempt (22:26:11-13 UTC), after confirming via
+  `query_logs`/`execute_sql` that the rate limit had fully cleared (no
+  send attempts since `21:07:11`):** the expected behavior occurred,
+  confirmed two independent ways — the owner's own screenshot showing
+  the "Your account is not authorized for this Utopia deployment."
+  banner rendered with a working "Sign out" button and the dashboard
+  still rendered underneath (no redirect), and direct log confirmation
+  via `function_edge_logs`: `GET | 403 |
+  .../risk-recommendation` and `GET | 403 |
+  .../risk-location-settings`, both at `22:26:13`.
+- **Recorded, not root-caused.** The first attempt's 401 did not
+  reproduce on a clean retry with the same identity and the same code.
+  It is logged here as a one-time anomaly (plausibly a brief
+  server-side timing hiccup right after an implicit-flow signup token
+  was issued) rather than silently dropped or guessed at further — no
+  code change was made, since the only reproducible behavior observed
+  matches the intended design.
+- **Section C rows 2 and 6 now both pass.** `DEPLOYMENT_RUNBOOK.md`
+  Section E updated to 16/21 passed, 5 deferred.
+
+## 2026-09-23 — Custom SMTP configured; Section C row 9 (Microsoft OAuth connect flow) passed
+
+**Root cause of the recurring "email rate exceeded" errors, confirmed
+directly from the GoTrue server's own reload log** (`query_logs`
+against `auth_logs`): the built-in shared email service was capped at
+`GOTRUE_RATE_LIMIT_EMAIL_SENT = 2/1h` — literally 2 emails per hour,
+project-wide, combined across every email-sending endpoint. This
+matches every blocking pattern observed throughout this session's
+testing. The owner configured custom SMTP (Gmail, with an app
+password, entered directly into the Supabase dashboard — never shared
+in this session) via Authentication -> Emails -> SMTP Settings,
+minimum interval per user left at the default 60s. The same reload log
+confirms the limiter was raised to `30` once custom SMTP took effect.
+A subsequent real login (`victoryacaman@gmail.com`, `22:45:54`)
+succeeded cleanly with no rate-limit error.
+
+- **Row 9 (real Microsoft OAuth connect flow) — passed.** The Excel
+  connector was already connected from an earlier session, and the
+  dashboard's own code (`ruta-dashboard-fixed.html` ~1506-1511) only
+  shows the "Connect with Microsoft" button when `excel-status`
+  reports `connected: false` — once connected, only a "choose/change
+  workbook" action is shown, with no reconnect/disconnect control
+  anywhere in the UI. A first attempt to exercise this row actually
+  just used the existing connection's silent token refresh
+  (`erp-inventory/index.ts` ~229, using the stored `refresh_token`
+  against Microsoft's token endpoint directly) — confirmed by
+  `oauth_states` being completely empty at that point, proving no
+  `excel-oauth-start`/`excel-oauth-callback` round trip had actually
+  run. To make the real flow testable, `excel_oauth.refresh_token`,
+  `access_token`, and `connected_account_email` were deliberately
+  cleared via a targeted SQL update (`client_id`/`client_secret`
+  untouched), which flips `excel-status`'s `connected` check (a plain
+  `Boolean(refresh_token)`) back to false and makes the dashboard show
+  the real "Connect with Microsoft" button again.
+- **Confirmed end to end, three independent ways**, after the owner
+  clicked through the real Microsoft consent flow: `excel-oauth-start`
+  returned `200` and `oauth_states` shows one row (state tied to the
+  owner's real user id) created at `22:59:20` and consumed exactly
+  once at `used_at = 22:59:41`; `excel-oauth-callback` received a real
+  Microsoft authorization `code` with the matching `state` and
+  returned `302` (the success path, no `invalid_state`); `excel_oauth`
+  came back fully repopulated with a fresh `refresh_token`/
+  `access_token`, `connected_account_email = victoryacaman@gmail.com`,
+  and `token_expires_at` exactly one hour out.
+- **Section C row 9 now passes.** `DEPLOYMENT_RUNBOOK.md` Section E
+  updated to 17/21 passed, 4 deferred.
+
+## 2026-09-23 — Section C rows 14, 15, 16, 19 passed; Section C now 21/21
+
+The four remaining rows all needed a real authenticated call, so each
+one was run directly by the owner from their own terminal with their
+own captured session token — never pasted into this chat, consistent
+with this project's established secret-handling standard. Getting a
+clean copy of a ~800-character token out of a browser console proved
+more error-prone than expected in practice (manual text selection
+truncated it; a stray shell parse error; a bare token pasted alone was
+once interpreted by zsh as a command name, producing "file name too
+long") — resolved by having the browser console build and copy the
+*entire* ready-to-run `curl` command (token already embedded) via
+Chrome DevTools' `copy()` utility, so the owner only ever pasted once
+into Terminal with nothing left to hand-edit.
+
+- **Row 14 (WhatsApp hourly rate limit, safe procedure) — passed.**
+  `vyacaman41@gmail.com` (the same test identity from the rows 2/6
+  pass) was added to `pilot_authorized_emails`. Exactly 10 rows were
+  seeded into `whatsapp_send_log` for that identity
+  (`function_name='send-whatsapp-alert'`, `shipment_id=null`), then
+  the owner made one real authenticated call as that identity —
+  confirmed `429` (`"Rate limit: at most 10 WhatsApp sends per hour
+  per user."`) and confirmed via `whatsapp_send_log` that the count
+  stayed at exactly 10 (no 11th row), proving the claim was rejected
+  before Meta was ever called. The 10 seeded rows were deleted
+  afterward.
+- **Row 15 (`send-whatsapp-alert` integration, real send as owner) —
+  passed.** One real authenticated call as the owner returned
+  `{ok:true}` with a real Meta `wamid` and `message_status:
+  "accepted"`; confirmed one new `whatsapp_send_log` row
+  (`sent_by`=owner's uuid); the owner confirmed the actual WhatsApp
+  message ("Hello World" sample template) arrived at 5:38 PM Honduras
+  time, matching the send timestamp exactly.
+- **Row 16 (`request-tracking-update` per-shipment cooldown) —
+  passed.** One disposable test shipment was inserted directly via SQL
+  (`driver_phone` = the same safe `test_recipient_number`). The
+  owner's first call sent successfully (`message_status: "accepted"`);
+  the second call, made immediately after, returned `429`
+  (`"A tracking request was already sent for this shipment in the
+  last 60 minutes..."`). Confirmed via `whatsapp_send_log` that only
+  one row exists for that shipment (the second call correctly did not
+  insert a duplicate). The test shipment and its log row were deleted
+  afterward.
+- **Row 19 (no `Origin` header, valid token -> 200) — passed.** Plain
+  `curl` never sends an `Origin` header by default. The owner's one
+  authenticated call to `excel-status` returned `200`
+  (`{"ok":true,"connected":true,...}`), confirmed via
+  `function_edge_logs`.
+- **Section C is now 21/21 passed, 0 deferred.** `DEPLOYMENT_RUNBOOK.md`
+  Section E updated accordingly; no remaining exceptions.

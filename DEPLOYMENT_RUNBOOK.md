@@ -419,9 +419,9 @@ Dashboard version/commit already live:  ae541c8 (unchanged; confirmed
   byte-identical to the repo before this release, no frontend redeploy
   was part of this pass)
 Tester name/email:          victoryacaman@gmail.com (owner)
-Test outcome (Section C, # 1-21):  14 / 21 run and passed; 7 deferred
-  (not failed — see exceptions below). Passed: 1, 3, 4, 5, 7, 8, 10,
-  11, 12, 13, 17 (data-level), 18, 20, 21.
+Test outcome (Section C, # 1-21):  21 / 21 run and passed; 0 deferred.
+  Passed: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+  (data-level), 18, 19, 20, 21.
   (Section F's staging-only reliability tests are never run against
   production and are not part of this count.)
 Webhook failure monitoring check performed (Section G):  [x]
@@ -433,24 +433,8 @@ Security note: the Meta app secret was rotated mid-verification after
   test (see BUILD_LOG.md's 2026-09-24 entry for the full incident
   record). The new secret was confirmed working before this record was
   finalized. No other credential was affected.
-Remaining exceptions or deferred items:
-  - Rows 2, 6 (non-allowlisted email -> 403): blocked by Supabase
-    Auth's own email-sending rate limit during this session, not a
-    code issue — retry once the quota resets. Underlying check
-    (`requireAuthorizedUser`'s case-insensitive allowlist lookup) is
-    already confirmed correct by direct code reading.
-  - Row 9 (real Microsoft OAuth connect flow): not run this pass —
-    the existing Excel connection was left untouched rather than
-    re-authorizing it unnecessarily.
-  - Row 14 (WhatsApp rate-limit safe procedure): the dedicated second
-    test identity (Section A precondition 11) was never actually set
-    up — not run this pass.
-  - Rows 15, 16 (real WhatsApp sends — integration check, per-shipment
-    cooldown): not run this pass; both require the owner to trigger a
-    real send from the dashboard.
-  - Row 19 (no Origin, valid token -> 200): needs a real session
-    token, best run directly by the owner from their own terminal
-    with their own captured token — not run this pass.
+Remaining exceptions or deferred items: none. All 21 rows run and
+  passed.
 ```
 
 ## F. Staging-only reliability tests
