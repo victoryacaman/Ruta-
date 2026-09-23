@@ -328,7 +328,7 @@ row. Record its real `auth.users.id`.
    Never delete by a broad time or user-scoped `WHERE` clause that could
    also match a genuine row — this test identity should never be used
    for anything else, but exact-id deletion is the safety net regardless.
-5. Row 18 above (a real send as the **owner**, a different identity)
+5. Row 15 above (a real send as the **owner**, a different identity)
    confirms the send path itself still works — keeping that check
    separate from this synthetic rate-limit test is deliberate.
 

@@ -1181,3 +1181,20 @@ external configuration changed.
 - **Not done this pass:** nothing was deployed, no migration was applied
   to the live Supabase project, no credential was rotated, and no
   external Meta/Microsoft/Supabase configuration was changed.
+
+## 2026-09-24 — Clarification: earlier "row 18" real-send reference now row 15 (no code, no deploy)
+
+A one-line clarification, not a correction of the entry above. The
+"Safe WhatsApp rate-limit test designed, replacing an unsafe one" entry
+earlier in this same date's log correctly called the real owner-send
+smoke test "row 18," matching `DEPLOYMENT_RUNBOOK.md`'s Section C table
+shape at the time it was written. A later same-day pass reorganized
+that table into production-safe and staging-only sections and
+renumbered the rows; the real owner-send test (`send-whatsapp-alert`
+integration still works) is now **row 15**, not row 18 — row 18 in the
+current table is an unrelated CORS test ("No Origin, no token"). The
+runbook's own internal cross-reference in the rate-limit procedure's
+step 5 was updated to match. This entry exists only to point future
+readers of the earlier "row 18" mention to the current row number; the
+earlier entry's text is left exactly as written, per this file's
+append-only rule.

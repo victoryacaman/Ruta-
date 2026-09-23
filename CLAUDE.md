@@ -20,11 +20,12 @@ unverified:
 - **[`SECURITY_AND_PILOT_BLOCKERS.md`](./SECURITY_AND_PILOT_BLOCKERS.md)** —
   authentication status, every endpoint's real exposure, and the ordered
   list of what's required before real customer data flows through this.
-  As of 2026-09-23, a full auth/OAuth-state/webhook-signature hardening
-  pass is written, tested, and committed but **not deployed** — the
-  document distinguishes what's fixed in the repository from what the
-  live system still does today. Read this before connecting anything to
-  a real customer.
+  As of 2026-09-24, a full auth/OAuth-state/webhook-signature hardening
+  pass — plus webhook idempotency, retry recovery, bounded attempts,
+  and operational failure monitoring — is implemented and tested in the
+  repository but **not deployed** — the document distinguishes what's
+  fixed in the repository from what the live system still does today.
+  Read this before connecting anything to a real customer.
 - **[`BUILD_LOG.md`](./BUILD_LOG.md)** — the full chronological history:
   what was built, what broke, what was found, how each fix was verified,
   and every earlier description that's since been superseded.
