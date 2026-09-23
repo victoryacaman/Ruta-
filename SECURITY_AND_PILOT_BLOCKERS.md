@@ -58,7 +58,7 @@ unaccounted for.
 | 13 | `shipments-create` | Yes | Yes | Dashboard (`authedFetch`) | Supabase authenticated user | Yes — real driver PII | Yes — writes a `shipments` row | Implemented in repository, tested locally | Deployed (pre-hardening code); awaiting deployment |
 | 14 | `shipments-list` | Yes | Yes | Dashboard (`authedFetch`) | Supabase authenticated user | Yes — real driver PII | No (pure read) | Implemented in repository, tested locally | Deployed (pre-hardening code); awaiting deployment |
 | 15 | `whatsapp-setup-tracking-template` | Yes | Yes | No dashboard call site — one-time admin setup | Supabase authenticated user | No — template definition only | Yes — calls Meta's Business Management API to create/check the template | Implemented in repository | Deployed (pre-hardening code); awaiting deployment — **flag for manual review**: template already approved and in use, confirm whether this needs to stay deployed |
-| 16 | `whatsapp-webhook` | Yes | Yes | Meta's webhook system (server-to-server — cannot carry a bearer token) | Meta signature (`X-Hub-Signature-256`, verified before parsing; GET handshake via `hub.verify_token`) | Yes — real inbound driver phone/message | Yes — writes `whatsapp_webhook_events`, updates `shipments` | Implemented in repository, tested locally (`crypto_test.ts`) | **Deployed (pre-hardening: no POST signature check at all — the one concrete exploitable gap); awaiting deployment, highest priority** |
+| 16 | `whatsapp-webhook` | Yes | Yes | Meta's webhook system (server-to-server — cannot carry a bearer token) | Meta signature (`X-Hub-Signature-256`, verified before parsing; GET handshake via `hub.verify_token`) | Yes — real inbound driver phone/message | Yes — atomically claims/updates `whatsapp_webhook_events` (real processing/completed/failed/gave-up state, not just existence), updates `shipments` on success only | Implemented in repository, tested locally (`crypto_test.ts`, `webhook_idempotency_test.ts`) | **Deployed (pre-hardening: no POST signature check at all, and the old idempotency table can silently lose a failed retry — see "Webhook idempotency" above); awaiting deployment, highest priority** |
 | 17 | `whatsapp-webhook-subscription` | Yes | Yes | No dashboard call site — admin diagnostic/fix | Supabase authenticated user | No — WABA subscription status only | Yes — POST changes the live WABA's webhook subscription | Implemented in repository | Deployed (pre-hardening code); awaiting deployment — **flag for manual review**: admin diagnostic tool, confirm still needed |
 | 18 | `storm-signal` | **No — no local directory, no git history** | Yes (v2) | Internal call from `risk-recommendation`; public weather relay | Intentionally public — identical, non-customer-specific data for every caller, by design | No | No (read-only relay of NOAA/NHC data) | **Not in repository** | Deployed and in active use. **Flag, do not remove:** its own source comments reference sibling functions (`gmail-summary`, `patrol-summary`, `attendance-feed`) that don't exist anywhere in this project — evidence it was copied from an unrelated project at deploy time. Recommend a future, separate task to back-fill its real source into this repo; not touched in this pass |
 | 19 | `excel-debug` | **No — no local directory, no git history** | Yes (v3) | None — fully disabled | Disabled/deprecated (`Deno.serve(() => new Response("disabled", {status:410}))`, unconditionally) | No | No | **Not in repository** | Deployed but inert (HTTP 410 for every request). **Flagged for manual removal** — a one-off OneDrive-path diagnostic from the 2026-09-01 Excel setup; its own code comment already says it's safe to delete via the Supabase dashboard. Not deleted here — deleting a deployed function is a deployment action, out of scope for a documentation pass |
@@ -200,10 +200,57 @@ shipment data.
 `whatsapp-webhook/index.ts` now reads the raw body via `req.text()`
 before any parsing, calls `verifyMetaSignature` against
 `whatsapp_config.meta_app_secret`, and returns 401 before touching the
-body if the signature is missing or wrong. It also adds message-ID
-idempotency (`whatsapp_webhook_events`, insert-before-ack) so a Meta
-retry doesn't reprocess the same inbound message twice. The live
-function still has none of this until it's redeployed.
+body if the signature is missing or wrong. The live function still has
+none of this until it's redeployed.
+
+## Webhook idempotency — a retry-loss bug found and fixed (2026-09-24)
+
+A follow-up audit of the full `whatsapp-webhook` flow, prompted by the
+question "if the shipment update fails after the message is recorded,
+does a Meta retry actually get reprocessed, or does it get silently
+skipped as a duplicate?" — answered by direct code inspection, not
+assumption:
+
+**Yes, the retry was lost.** The idempotency table
+(`whatsapp_webhook_events`) originally recorded only "have we seen this
+`message_id`," never "did we finish processing it." The row was
+inserted (`upsert` + `ignoreDuplicates`) *before* the shipment-matching/
+update logic ran, and any later delivery of the same `message_id` saw 0
+rows back from that insert and was skipped as a duplicate — the update
+logic was never re-reached. Separately, the shipment `.update()` call's
+own `{error}` result was never checked, and even a thrown exception was
+swallowed by a catch block that only logged — the function returned an
+unconditional `200` regardless of outcome. **Net effect: a genuine
+failure in the shipment update, after the message was already recorded,
+was permanently and silently unrecoverable** — Meta was never told to
+retry (always 200), and if it had retried anyway for some other reason,
+the existing row would have caused that retry to be skipped before the
+update ever ran again.
+
+**Implemented in repository, tested locally, awaiting deployment.**
+`whatsapp_webhook_events` gains real processing-state tracking (`status`
+— `processing`/`completed`/`failed`/`gave_up`/`legacy_unverified` —
+plus `claimed_at`, `processed_at`, `attempt_count`, `last_error_category`,
+`updated_at`) and a new atomic claim RPC (`claim_webhook_event`, the same
+`pg_advisory_xact_lock` idiom `claim_whatsapp_send_slot` already uses)
+so a `message_id` alone never implies success: a `completed` duplicate
+acks without reprocessing; a `failed` duplicate is retried; an abandoned
+`processing` row past a staleness window is recovered and retried;
+concurrent duplicate deliveries of the same `message_id` can't both
+claim it, so they can't both update the shipment; and a message that
+keeps failing past a bounded attempt count is marked `gave_up` (acked,
+so Meta stops retrying) rather than retried forever. The shipment
+update's own errors are now checked and thrown, so a genuine failure
+calls `fail_webhook_event` and returns a retryable `500` — never a `200`
+for work that didn't actually complete. See
+`supabase/migrations/20260924000000_webhook_idempotency.sql`,
+`_shared/webhookIdempotency.ts`, and `whatsapp-webhook/idempotency.ts`
+(the pure decision logic, unit-tested in `webhook_idempotency_test.ts`).
+Two properties — the advisory lock's actual cross-transaction
+concurrency guarantee, and confirming an invalid signature truly never
+creates a row — need a live Postgres instance to verify directly and
+are flagged as not independently automated in this pass, not silently
+claimed tested.
 
 ## Microsoft OAuth state validation — weaker than previously documented
 

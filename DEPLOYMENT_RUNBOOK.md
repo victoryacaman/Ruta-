@@ -13,7 +13,7 @@ described in `SECURITY_AND_PILOT_BLOCKERS.md` and
 dashboard's frontend (`index.html`, `ruta-dashboard-fixed.html`) is
 **already live** in production with real Supabase Auth — there is no
 "publish the dashboard" step in this runbook because that already
-happened. Everything below is about the **backend**: three pending
+happened. Everything below is about the **backend**: four pending
 database migrations and 17 Edge Function redeploys that make the
 already-live frontend's authentication actually mean something.
 
@@ -27,10 +27,10 @@ Section B. None of these steps change anything live by themselves.
    at that commit on `main`.
 2. **Tests must pass, re-run against that exact commit** (a green run
    from an earlier commit does not satisfy this):
-   - `deno test --allow-env tests/unit/` — expect all 70 tests passing
+   - `deno test --allow-env tests/unit/` — expect all 81 tests passing
      (`crypto_test.ts`, `cors_test.ts`, `rateLimit_test.ts`,
      `decisions_metrics_test.ts`, `erp_validation_test.ts`,
-     `fingerprint_test.ts`, `scoring_test.ts`).
+     `fingerprint_test.ts`, `scoring_test.ts`, `webhook_idempotency_test.ts`).
    - `NODE_PATH=<node_modules path> node tests/integration/dashboard_auth_test.js`
      — expect 10/10 checks passing.
    - Same for `dashboard_null_safety_test.js` (12/12) and
@@ -39,9 +39,9 @@ Section B. None of these steps change anything live by themselves.
      `_shared/*.ts` — expect no new errors (the pre-existing
      `erp-inventory`/`excel-browse`/`excel-select-workbook` type-inference
      quirk, documented separately, is not a release blocker).
-3. **Database backup / recovery plan.** All three pending migrations
+3. **Database backup / recovery plan.** All four pending migrations
    (below) are additive-only — new tables, new nullable/defaulted
-   columns, one new function; none drop or destructively alter existing
+   columns, new functions; none drop or destructively alter existing
    data. Still: take a Supabase backup (point-in-time or manual export)
    immediately before Section B, step 1. Record current row counts as a
    baseline to diff against afterward: `erp_config` (1), `risk_snapshots`
@@ -99,6 +99,39 @@ Section B. None of these steps change anything live by themselves.
     ```
 
     Only the publishable/anon key should ever appear in either file.
+11. **Dedicated rate-limit test identity exists.** A real Supabase Auth
+    user, created via Auth's own invite/admin flow (never through an
+    Edge Function), with its email seeded into `pilot_authorized_emails`
+    separately from the owner's own row — needed for Section C's safe
+    WhatsApp rate-limit test. One-time setup, not per-release, but
+    confirm it still exists and its email is still allowlisted.
+12. **Mandatory frontend preflight — a hard gate, run immediately before
+    starting Section B:**
+    - Open the hosted sign-in page (`index.html`'s real URL) in a clean
+      or incognito browser session — no cached session, no extension
+      state.
+    - Complete one real magic-link login as the owner.
+    - Confirm the hosted dashboard's *served* source (not the local
+      repo) already contains the session-bootstrap code and
+      `authedFetch` — e.g. `curl` the live URL and grep for both:
+
+      ```bash
+      curl -s <hosted ruta-dashboard-fixed.html URL> | grep -o "authedFetch\|getSession"
+      ```
+
+      Expect both to appear.
+    - Confirm, via browser devtools' network tab, that a real protected
+      request from that session actually carries an
+      `Authorization: Bearer ...` header.
+    - Record the exact frontend commit hash currently published by
+      GitHub Pages (cross-check against `git log` for
+      `index.html`/`ruta-dashboard-fixed.html` on `main`).
+    - **Stop here — do not proceed to Section B — if the hosted frontend
+      is not the expected released version.** Redeploying the backend
+      against a stale or unexpected frontend is exactly the "publishing
+      a dashboard that calls incompatible functions" failure mode this
+      runbook exists to prevent, just in the opposite direction (backend
+      catching up to a frontend that isn't what you think it is).
 
 ## B. Ordered release sequence
 
@@ -109,7 +142,7 @@ seeded *before* the functions that check it start enforcing it, and on
 not breaking the two protocol-verified integrations (Excel OAuth,
 WhatsApp webhook) mid-flight.
 
-1. **Apply the three pending migrations**, in this order (they don't
+1. **Apply the four pending migrations**, in this order (they don't
    depend on each other, but this is their commit order):
    `20260922000000_security_hardening.sql` (creates
    `pilot_authorized_emails`, `oauth_states`, `whatsapp_webhook_events`,
@@ -117,10 +150,12 @@ WhatsApp webhook) mid-flight.
    `20260922010000_decision_integrity.sql` (adds `risk_snapshots.environment`/
    `computation_source`/`signal_fingerprint`/`computation_count`/
    `last_computed_at`), `20260923000000_atomic_rate_limit.sql` (creates
-   the `claim_whatsapp_send_slot` function). **Purely additive — no
-   currently-deployed function references any of these new objects yet,
-   so this step changes zero live behavior by itself.** Safe to run
-   first, in isolation.
+   the `claim_whatsapp_send_slot` function), `20260924000000_webhook_idempotency.sql`
+   (adds real processing-state columns to `whatsapp_webhook_events` and
+   the `claim_webhook_event`/`complete_webhook_event`/`fail_webhook_event`
+   functions). **Purely additive — no currently-deployed function
+   references any of these new objects yet, so this step changes zero
+   live behavior by itself.** Safe to run first, in isolation.
 2. **Seed `pilot_authorized_emails`** with one row for the owner's sign-in
    email. Also inert until step 6 below — no function checks this table
    yet. **This must happen before step 6, without exception.**
@@ -171,12 +206,17 @@ WhatsApp webhook) mid-flight.
    as `invalid_state` — breaking the currently-working Excel connect
    flow. Deploying both together avoids this.
 8. **Redeploy `whatsapp-webhook`** only after step 3 (Meta app secret
-   set) and step 1 (migration created `whatsapp_webhook_events`) are
-   both done. Also never gated by `requireAuthorizedUser` — its gate is
-   Meta's own HMAC signature, self-contained and protocol-level, so
-   there's no owner-lockout risk here either. The only real risk is the
-   one named in step 3: deploy before the secret is set, and real
-   inbound WhatsApp replies silently stop recording.
+   set) and step 1 (migrations created `whatsapp_webhook_events` and its
+   `claim_webhook_event`/`complete_webhook_event`/`fail_webhook_event`
+   functions) are both done. Also never gated by `requireAuthorizedUser`
+   — its gate is Meta's own HMAC signature, self-contained and
+   protocol-level, so there's no owner-lockout risk here either. Two
+   real risks if deployed before its dependencies: the secret risk named
+   in step 3, and — new as of the 2026-09-24 idempotency fix — deploying
+   this function before the `20260924000000_webhook_idempotency.sql`
+   migration lands would call RPCs that don't exist yet, failing every
+   inbound delivery outright (a much louder failure than the old
+   silent-loss bug, but still worth sequencing correctly).
 9. **After Section C's smoke tests pass**, handle the two deployed-only
    functions from the reconciliation table:
    - `excel-debug`: safe to delete now (its own code returns HTTP 410
@@ -197,6 +237,9 @@ WhatsApp webhook) mid-flight.
 ## C. Production smoke tests
 
 Run every row below against the live system after Section B completes.
+Row 17 (the WhatsApp rate limit) has a full safe procedure in its own
+subsection right after the table — do not run the naive "send 11 real
+messages" approach.
 
 | # | Test | Steps | Expected result |
 | --- | --- | --- | --- |
@@ -210,15 +253,72 @@ Run every row below against the live system after Section B completes.
 | 8 | Protected operational endpoints | `curl` each of the 15 gated functions directly with no `Authorization` header | Every one returns 401, not 200 |
 | 9 | Microsoft OAuth state/PKCE success | Run a real "Connect with Microsoft" flow end to end | Completes; `excel_oauth` row updated; no `invalid_state` error |
 | 10 | Expired/reused OAuth state | Replay an already-used or expired `state` value against `excel-oauth-callback` | Redirects with a generic `invalid_state` error, never a token or verifier in the URL |
-| 11 | Valid Meta webhook signature | Send a correctly-signed test payload to `whatsapp-webhook` | 200; row written to `whatsapp_webhook_events` |
-| 12 | Invalid Meta webhook signature | Send a tampered body or wrong-secret signature to `whatsapp-webhook` | 401; nothing written |
-| 13 | Duplicate webhook delivery | Send the same `message_id` payload twice | Second delivery is a no-op (idempotency via `whatsapp_webhook_events`); still 200 |
-| 14 | WhatsApp per-shipment cooldown | Call `request-tracking-update` twice within 60 minutes for the same shipment | Second call blocked with a 429/cooldown response, no duplicate message sent |
-| 15 | WhatsApp hourly rate limit | Call `send-whatsapp-alert` 11 times within an hour as the same user | The 11th call is blocked |
-| 16 | Decision-history demo/pilot separation | Call `decisions-list` with default params | Response scope excludes `environment` values other than `pilot` by default, matches `decisions_metrics_test.ts`'s expectations |
-| 17 | Restricted CORS | Send a preflight `OPTIONS` request from a non-allowed Origin | 403, no CORS headers; a request with no Origin header (e.g. `curl`, `file://`) still succeeds |
-| 18 | Existing Excel functionality | Browse/select a workbook via the Add Tools picker as the authorized owner | Real OneDrive file/table names returned; selection saves correctly |
-| 19 | Existing WhatsApp functionality | Send one real `request-tracking-update`, then reply from the real test phone | Outbound message arrives; inbound reply is matched and recorded against the shipment |
+| 11 | Valid Meta webhook signature | Send a correctly-signed test payload to `whatsapp-webhook` | 200; a `whatsapp_webhook_events` row exists with `status='completed'` and `processed_at` set |
+| 12 | Invalid Meta webhook signature | Send a tampered body or wrong-secret signature to `whatsapp-webhook` | 401; **no row created at all** in `whatsapp_webhook_events` (confirm by `message_id`, not just by response code) |
+| 13 | Duplicate delivery, completed | Send the same `message_id` payload twice, letting the first fully succeed | Second delivery is a no-op (`duplicate_completed`, matched shipment not touched again); still 200 |
+| 14 | Duplicate delivery, failed | Force the shipment update to fail once (e.g. temporarily point `driver_phone` at a value that violates a constraint, or simulate via a broken `shipments.update` for one delivery), redeliver the same `message_id` | First delivery: 500, row status `failed`. Second (retry): reprocessed for real, ends `completed` |
+| 15 | Stale-processing recovery | Manually set an existing row to `status='processing'`, `updated_at` older than 5 minutes ago (via SQL), then redeliver that `message_id` | Reclaimed and reprocessed (`attempt_count` incremented), not skipped as in-progress |
+| 16 | Concurrent duplicate deliveries | Best-effort only — fire two requests with the identical `message_id` as close to simultaneously as your tooling allows (e.g. two parallel `curl` processes) | At most one reaches `completed` with a real shipment update; the other gets `duplicate_in_progress` (409) or `duplicate_completed` (200), never a second shipment update. **Caveat:** true simultaneity can't be guaranteed by a shell script — this is a best-effort live check, not a proof; the underlying guarantee is the `pg_advisory_xact_lock` in `claim_webhook_event`, not this test |
+| 17 | WhatsApp hourly rate limit (safe procedure) | See the dedicated subsection immediately below — **do not send 10 real messages to test this** | `429` on the one real call made, zero real Meta sends during the test |
+| 18 | `send-whatsapp-alert` integration still works | One ordinary real send via `send-whatsapp-alert` as the **owner** (not the rate-limit test identity), to `whatsapp_config.test_recipient_number` | Real message arrives; confirms the rate-limit redesign didn't break the actual send path |
+| 19 | WhatsApp per-shipment cooldown | Call `request-tracking-update` twice within 60 minutes for the same shipment | Second call blocked with a 429/cooldown response, no duplicate message sent |
+| 20 | Decision-history demo/pilot separation | Call `decisions-list` with default params | Response scope excludes `environment` values other than `pilot` by default, matches `decisions_metrics_test.ts`'s expectations |
+| 21 | No Origin, no token | Call a protected endpoint with no `Origin` header and no `Authorization` header (e.g. plain `curl`) | `401` — a missing `Origin` only bypasses *browser* CORS evaluation, it is never a substitute for authentication |
+| 22 | No Origin, valid token | Call a protected endpoint with no `Origin` header but a valid authorized bearer token (e.g. plain `curl`) | Reaches the endpoint normally, `200` — confirms server-to-server/tooling access still works without a browser |
+| 23 | Unauthorized browser origin | Send a preflight `OPTIONS` request with a real `Origin` header not on the allow-list | `403`, no CORS headers at all — the browser aborts before the real request is ever sent |
+| 24 | Existing Excel functionality | Browse/select a workbook via the Add Tools picker as the authorized owner | Real OneDrive file/table names returned; selection saves correctly |
+
+### Safe WhatsApp rate-limit test procedure (for row 17)
+
+The naive version of this test — call `send-whatsapp-alert` 11 times and
+confirm the 11th is blocked — requires 10 real messages to actually reach
+Meta first. This procedure verifies the same limit without ever letting
+a test call reach Meta, and without adding any new endpoint parameter
+(no `dryRun` flag exists or is added anywhere) — the seeding happens
+purely at the database layer, the same way `pilot_authorized_emails` is
+already seeded and recovered directly via the SQL editor.
+
+**Precondition (one-time setup, not per release):** a dedicated test
+identity exists — a real Supabase Auth user, created via Auth's own
+invite/admin flow (never through an Edge Function), with its email
+seeded into `pilot_authorized_emails` separately from the owner's own
+row. Record its real `auth.users.id`.
+
+1. Sign in as the test identity once (a real magic link) to obtain a
+   real session `access_token`. Keep it handy for step 3.
+2. Via the Supabase SQL editor (service-role context — the same access
+   path already used to seed `pilot_authorized_emails`), seed **exactly
+   10** rows — not 9: `claim_whatsapp_send_slot` counts pre-existing rows
+   `>= max_count` *before* its own insert, so 10 pre-existing rows makes
+   the next real call attempt **#11**, which is what actually gets
+   blocked:
+
+   ```sql
+   insert into whatsapp_send_log (function_name, shipment_id, sent_by, sent_at)
+   select 'send-whatsapp-alert', null, '<test identity's real uuid>', now() - (n || ' minutes')::interval
+   from generate_series(1, 10) as n
+   returning id;
+   ```
+
+   Save the returned `id`s for cleanup in step 4.
+3. Make **one** real authenticated call to `send-whatsapp-alert` as the
+   test identity. Expected: `HTTP 429` with the exact rate-limit message
+   body, and confirm in the function's logs that no request to
+   `graph.facebook.com` was made — this is guaranteed by the code itself
+   (the claim check runs before any `whatsapp_config` read), not just by
+   the test.
+4. Clean up **only** the exact seeded rows from step 2's `RETURNING id`:
+
+   ```sql
+   delete from whatsapp_send_log where id in (<the ids returned in step 2>);
+   ```
+
+   Never delete by a broad time or user-scoped `WHERE` clause that could
+   also match a genuine row — this test identity should never be used
+   for anything else, but exact-id deletion is the safety net regardless.
+5. Row 18 above (a real send as the **owner**, a different identity)
+   confirms the send path itself still works — keeping that check
+   separate from this synthetic rate-limit test is deliberate.
 
 ## D. Rollback plan
 
@@ -231,16 +331,18 @@ Run every row below against the live system after Section B completes.
   Meta signature check, no rate limit. This is a known-vulnerability
   reopening, not a neutral action, and should only be done if the
   redeploy itself broke something worse than the gap it closed.
-- **Database.** All three migrations are additive; rolling back
+- **Database.** All four migrations are additive; rolling back
   application code does **not** require rolling back the schema — old
-  function code simply doesn't reference the new tables/columns/function.
+  function code simply doesn't reference the new tables/columns/functions.
   If a schema rollback is ever genuinely needed, it must preserve
   `oauth_states` (in-flight OAuth attempts), `whatsapp_send_log`/
-  `whatsapp_webhook_events` (audit trail), and must never truncate or
-  restore over current data in `risk_snapshots`, `shipments`, or
-  `recommendation_events` (real decision history and shipment data) — a
-  schema rollback should `DROP` only the new objects, never restore a
-  backup that overwrites current rows in the pre-existing tables.
+  `whatsapp_webhook_events` (audit trail, including each event's real
+  processing status/attempt history from the idempotency fix), and must
+  never truncate or restore over current data in `risk_snapshots`,
+  `shipments`, or `recommendation_events` (real decision history and
+  shipment data) — a schema rollback should `DROP` only the new objects,
+  never restore a backup that overwrites current rows in the
+  pre-existing tables.
 - **Dashboard.** The frontend is already live and is not part of this
   release's rollback surface — if it ever needs to roll back
   independently, revert `index.html`/`ruta-dashboard-fixed.html` to the
@@ -272,6 +374,7 @@ Migrations applied:
   [ ] 20260922000000_security_hardening.sql
   [ ] 20260922010000_decision_integrity.sql
   [ ] 20260923000000_atomic_rate_limit.sql
+  [ ] 20260924000000_webhook_idempotency.sql
 Functions redeployed (17):
   [ ] decisions-list                        [ ] risk-location-settings
   [ ] erp-inventory                         [ ] risk-recommendation
@@ -287,7 +390,7 @@ Deployed-only functions (not redeployed, action taken):
   [ ] storm-signal — left in place (no action expected)
 Dashboard version/commit already live:  ______________________
 Tester name/email:          ______________________
-Test outcome (Section C, # 1–19):  ______ / 19 passed
+Test outcome (Section C, # 1–24):  ______ / 24 passed
 Remaining exceptions or deferred items:
   ______________________________________________________
   ______________________________________________________

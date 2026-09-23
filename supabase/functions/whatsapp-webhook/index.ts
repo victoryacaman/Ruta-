@@ -1,6 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { verifyMetaSignature } from "../_shared/crypto.ts";
+import { claimWebhookEvent, completeWebhookEvent, failWebhookEvent } from "../_shared/webhookIdempotency.ts";
+import { categorizeError } from "./idempotency.ts";
 
 // Driver/provider WhatsApp tracking agent: the first INBOUND surface in
 // this project (everything else is outbound-only). Meta calls this
@@ -17,23 +19,26 @@ import { verifyMetaSignature } from "../_shared/crypto.ts";
 // app receives). Verified BEFORE any JSON.parse, against the untouched
 // raw body bytes -- Meta signs the bytes it sent, not a re-serialized
 // object, so parsing first and re-stringifying would make the signature
-// unverifiable. Rejected before any body parsing or DB write.
+// unverifiable. Rejected before any body parsing or DB write, so an
+// invalid signature can never reach the idempotency claim below.
 //
-// IDEMPOTENCY: Meta retries a webhook delivery on anything but a prompt
-// 2xx, so the same message can arrive more than once. whatsapp_webhook_
-// events (message_id primary key) is written durably BEFORE we ack --
-// a duplicate delivery finds its row already there (0 rows inserted) and
-// is ack'd without reprocessing; a genuine DB failure on that first write
-// returns 500 so Meta retries instead of silently dropping the message.
-// Only once that record exists do we do the "nice to have" driver-reply
-// matching -- a bug in that logic is logged but never turns into a 500,
-// since the message is already durably recorded and re-delivery wouldn't
-// fix it, it would just double the noise.
-//
-// Always returns 200 on POST once the message is durably recorded (even
-// if the driver-reply matching that follows hits an internal error,
-// logged server-side instead) because Meta disables a webhook that
-// fails/times out repeatedly.
+// IDEMPOTENCY, FIXED FOR REAL (2026-09-24): the original version of this
+// function inserted a bare message_id row BEFORE doing any shipment
+// work, then treated any later delivery of the same id as "already
+// handled" -- with no column distinguishing "recorded" from "recorded
+// AND successfully processed." A real failure in the shipment update
+// (its own {error} was never checked) was silently discarded, and the
+// function still acked 200 regardless -- so Meta was never told to
+// retry, and if it somehow had, the existing row would have caused the
+// retry to be skipped before the update ever ran again. See
+// supabase/migrations/20260924000000_webhook_idempotency.sql and
+// _shared/webhookIdempotency.ts: claimWebhookEvent now atomically
+// (pg_advisory_xact_lock, same idiom as claim_whatsapp_send_slot)
+// decides one of proceed / duplicate_completed / duplicate_in_progress /
+// duplicate_gave_up / gave_up. Only 'proceed' ever runs the shipment
+// logic below, and only a genuinely successful outcome calls
+// completeWebhookEvent -- a thrown error calls failWebhookEvent and
+// returns a retryable non-2xx instead of acking 200.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,6 +59,67 @@ function supabaseClient() {
 // just not copied into tracking_number. Documented as a pilot-speed
 // limitation in CLAUDE.md.
 const TRACKING_CODE_RE = /^[A-Za-z0-9-]{5,20}$/;
+
+// Looks up and updates the shipment for an inbound message. Returns the
+// matched shipment's id (or null if no shipment matched -- a legitimate,
+// successful "nothing to do" outcome, not a failure). Throws on any real
+// database error instead of the previous silent-discard behavior, so a
+// genuine failure actually reaches the caller's catch block.
+async function processInboundMessage(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  message: { from?: unknown; text?: { body?: unknown } },
+): Promise<string | null> {
+  const fromPhone = String(message.from ?? "").replace(/\D/g, "");
+  const text = message.text?.body ? String(message.text.body).trim() : "";
+  if (!fromPhone || !text) return null;
+
+  // Prefer the most recently-contacted shipment awaiting a reply from
+  // this phone; fall back to this phone's most recent shipment at all
+  // (covers a driver replying to an older request, or out of the blue).
+  const primary = await supabase
+    .from("shipments")
+    .select("id")
+    .eq("driver_phone", fromPhone)
+    .eq("status", "tracking_requested")
+    .order("last_contacted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (primary.error) throw primary.error;
+  let shipment = primary.data;
+
+  if (!shipment) {
+    const fallback = await supabase
+      .from("shipments")
+      .select("id")
+      .eq("driver_phone", fromPhone)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (fallback.error) throw fallback.error;
+    shipment = fallback.data;
+  }
+
+  if (!shipment) {
+    console.log(`whatsapp-webhook: inbound message from unrecognized phone ${fromPhone}, no matching shipment`);
+    return null;
+  }
+
+  const update: Record<string, unknown> = {
+    last_driver_message: text,
+    last_response_at: new Date().toISOString(),
+    status: "tracking_received",
+  };
+  if (TRACKING_CODE_RE.test(text.replace(/\s+/g, ""))) {
+    update.tracking_number = text;
+  } else {
+    update.carrier_eta = text;
+  }
+  const { error: updateError } = await supabase.from("shipments").update(update).eq("id", shipment.id);
+  if (updateError) throw updateError;
+
+  return shipment.id as string;
+}
 
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
@@ -106,78 +172,48 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
     }
 
-    // Durable write BEFORE ack: ignoreDuplicates makes this an
-    // INSERT ... ON CONFLICT (message_id) DO NOTHING -- 0 rows back means
-    // this message_id was already recorded (a Meta retry), 1 row means
-    // this is genuinely new.
-    const { data: inserted, error: insertError } = await supabase
-      .from("whatsapp_webhook_events")
-      .upsert({ message_id: messageId }, { onConflict: "message_id", ignoreDuplicates: true })
-      .select("message_id");
-    if (insertError) {
+    let claim;
+    try {
+      claim = await claimWebhookEvent(supabase, messageId);
+    } catch (err) {
       // Genuine transient failure BEFORE any durable record exists --
       // return 500 so Meta retries, rather than silently dropping it.
-      console.error("whatsapp-webhook: idempotency insert failed:", insertError.message);
+      console.error("whatsapp-webhook: idempotency claim failed:", err);
       return new Response(JSON.stringify({ ok: false, error: "Server error" }), { status: 500, headers: corsHeaders });
     }
-    if (!inserted || inserted.length === 0) {
-      console.log(`whatsapp-webhook: duplicate delivery for message ${messageId}, skipping reprocessing`);
+
+    if (claim.action === "duplicate_completed") {
+      console.log(`whatsapp-webhook: duplicate delivery for already-completed message ${messageId}, skipping reprocessing`);
+      return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
+    }
+    if (claim.action === "duplicate_gave_up") {
+      console.log(`whatsapp-webhook: duplicate delivery for message ${messageId}, already gave up after ${claim.attemptCount} attempts`);
+      return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
+    }
+    if (claim.action === "duplicate_in_progress") {
+      // Genuinely not finished yet from this request's point of view --
+      // ask Meta to retry later rather than guessing at an outcome.
+      console.log(`whatsapp-webhook: message ${messageId} is already being processed, asking Meta to retry later`);
+      return new Response(JSON.stringify({ ok: false, error: "Still processing, retry later" }), { status: 409, headers: corsHeaders });
+    }
+    if (claim.action === "gave_up") {
+      console.error(`whatsapp-webhook: giving up on message ${messageId} after ${claim.attemptCount} attempts -- acking to stop the retry storm, needs manual investigation`);
       return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
     }
 
+    // claim.action === "proceed"
     try {
-      const fromPhone = String(message.from ?? "").replace(/\D/g, "");
-      const text = message.text?.body ? String(message.text.body).trim() : "";
-
-      if (fromPhone && text) {
-        // Prefer the most recently-contacted shipment awaiting a reply
-        // from this phone; fall back to this phone's most recent
-        // shipment at all (covers a driver replying to an older request,
-        // or out of the blue).
-        let { data: shipment } = await supabase
-          .from("shipments")
-          .select("id")
-          .eq("driver_phone", fromPhone)
-          .eq("status", "tracking_requested")
-          .order("last_contacted_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (!shipment) {
-          const fallback = await supabase
-            .from("shipments")
-            .select("id")
-            .eq("driver_phone", fromPhone)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          shipment = fallback.data;
-        }
-
-        if (shipment) {
-          const update: Record<string, unknown> = {
-            last_driver_message: text,
-            last_response_at: new Date().toISOString(),
-            status: "tracking_received",
-          };
-          if (TRACKING_CODE_RE.test(text.replace(/\s+/g, ""))) {
-            update.tracking_number = text;
-          } else {
-            update.carrier_eta = text;
-          }
-          await supabase.from("shipments").update(update).eq("id", shipment.id);
-          await supabase.from("whatsapp_webhook_events").update({ shipment_id: shipment.id }).eq("message_id", messageId);
-        } else {
-          console.log(`whatsapp-webhook: inbound message from unrecognized phone ${fromPhone}, no matching shipment`);
-        }
-      }
+      const shipmentId = await processInboundMessage(supabase, message);
+      await completeWebhookEvent(supabase, messageId, shipmentId);
+      return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
     } catch (err) {
-      // Already durably recorded above -- log and still ack. Retrying
-      // wouldn't fix a bug in this matching logic, it would just repeat it.
       console.error("whatsapp-webhook: error processing inbound message:", err);
+      await failWebhookEvent(supabase, messageId, categorizeError(err));
+      // The update genuinely did not complete -- never ack success for
+      // this. Retryable, so Meta redelivers and the next claim recovers
+      // this exact 'failed' row.
+      return new Response(JSON.stringify({ ok: false, error: "Processing failed" }), { status: 500, headers: corsHeaders });
     }
-
-    return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
   }
 
   return new Response(null, { status: 405, headers: corsHeaders });

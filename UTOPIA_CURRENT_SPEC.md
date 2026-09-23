@@ -315,13 +315,25 @@ matches a driver's reply back to the correct shipment and records it
 (tracking number via a simple regex heuristic, or free-text as an ETA
 note). Proven with a real phone conversation in both directions.
 
-- **Repository status:** the signature-validation gap is fixed.
-  `whatsapp-webhook` now verifies Meta's `X-Hub-Signature-256` against
-  `whatsapp_config.meta_app_secret` before parsing anything, and adds
-  message-ID idempotency. Written and committed.
+- **Repository status:** the signature-validation gap is fixed, and a
+  second gap found and fixed on 2026-09-24 — the original message-ID
+  idempotency only recorded "have we seen this id," not "did we finish
+  processing it," so a real shipment-update failure after a successful
+  delivery was silently and permanently lost (Meta was never told to
+  retry, and a later retry would have been skipped as a duplicate
+  before the update ran again). `whatsapp-webhook` now verifies Meta's
+  `X-Hub-Signature-256` against `whatsapp_config.meta_app_secret` before
+  parsing anything, and claims each message through a real
+  processing/completed/failed/gave-up state machine (a
+  `pg_advisory_xact_lock`-backed RPC, `claim_webhook_event`) so a
+  message-ID alone never implies success, a genuine failure is
+  retryable, an abandoned in-flight claim recovers, and concurrent
+  duplicate deliveries can't both update the same shipment. Written,
+  committed, and unit-tested (`webhook_idempotency_test.ts`).
 - **Production status:** not deployed — the live webhook still accepts
   any POST shaped like a WhatsApp delivery with no signature check at
-  all. See `SECURITY_AND_PILOT_BLOCKERS.md`.
+  all, and still has the old record-existence-only idempotency table.
+  See `SECURITY_AND_PILOT_BLOCKERS.md`.
 
 ### Dashboard views — **Live and verified**
 
@@ -365,9 +377,15 @@ closes this gap and in what order.
 
 Served via GitHub Pages on the public repository; confirmed live today (the
 hosted root and the dashboard file both return a normal successful
-response). A lightweight, explicitly non-secure sign-in gate sits in front
-of it — see `SECURITY_AND_PILOT_BLOCKERS.md` for exactly what that does and
-doesn't protect against.
+response). **Correction to earlier framing:** the sign-in in front of it
+is a real Supabase Auth magic-link login, not a non-secure client-side
+gate — that description was accurate for the *old* shared-password
+mechanism this replaced, and is now stale. What's still open is the
+*backend*, not the frontend: none of the 19 deployed Edge Functions
+check the real session/allowlist this login already produces — see
+"Authentication — frontend deployed, backend still open" above and
+`SECURITY_AND_PILOT_BLOCKERS.md` for exactly what that does and doesn't
+protect against today.
 
 ### Visual design — **Live and verified**
 
@@ -386,8 +404,6 @@ review).
 ## Planned (not built)
 
 - A real production domain (currently GitHub Pages' own subdomain).
-- Real backend-enforced authentication — the current sign-in gate is a
-  client-side deterrent only (see `SECURITY_AND_PILOT_BLOCKERS.md`).
 - Formal Meta Business verification + an approved general risk-alert
   template for proactively messaging a business owner.
 - Automatic/scheduled tracking-update requests (currently manual-button

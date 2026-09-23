@@ -967,3 +967,121 @@ without the file actually existing.
   `UTOPIA_CURRENT_SPEC.md`'s one) confirmed resolving to a file that
   exists in this same directory. All six packaged into
   `UTOPIA_DOCUMENTATION_FINAL_REVIEW.zip`.
+
+## 2026-09-24 — Webhook idempotency retry-loss bug found and fixed; safe rate-limit test; doc/runbook corrections (no deployment)
+
+A pre-deployment correction pass: a real code bug found and fixed (with
+tests and a new migration), plus documentation and runbook corrections.
+Everything below is committed but **not deployed** — same constraint as
+every prior pass.
+
+- **Webhook idempotency retry-loss bug, confirmed and fixed.** Asked
+  directly: if a message is recorded, the shipment update then fails,
+  and Meta retries with the same `message_id`, does the retry actually
+  get reprocessed? Answered by reading the code, not assuming: **no**.
+  `whatsapp_webhook_events` only ever recorded "have we seen this id,"
+  and the row was inserted *before* the shipment-matching/update logic
+  ran — so any later delivery was skipped as a duplicate with that logic
+  never re-reached. Separately, the shipment `.update()` call's own
+  `{error}` was never checked, and even a thrown exception was swallowed
+  by a log-only catch block — the function returned an unconditional
+  `200` regardless of outcome. A genuine failure after a successful
+  delivery was therefore permanently and silently lost: Meta was never
+  told to retry, and a retry (if one had happened anyway) would have
+  been skipped before the update ran again.
+- **Fixed with a real processing-state machine, not a bigger patch on
+  the same bug.** New migration `20260924000000_webhook_idempotency.sql`
+  adds `status` (`processing`/`completed`/`failed`/`gave_up`/
+  `legacy_unverified` — no separate `received` state, since this
+  function is synchronous end-to-end and the two would be the same
+  instant), `claimed_at`, `processed_at`, `attempt_count`,
+  `last_error_category` (a short safe category only, never a raw
+  message/stack/payload) to `whatsapp_webhook_events`, plus three
+  `service_role`-only functions: `claim_webhook_event` (the same
+  `pg_advisory_xact_lock` idiom `claim_whatsapp_send_slot` already
+  established, so concurrent deliveries of the same `message_id` can't
+  both receive "proceed"), `complete_webhook_event`, `fail_webhook_event`.
+  A completed duplicate acks without reprocessing; a failed or
+  abandoned-stale one is reclaimed and retried; a message that keeps
+  failing past a bounded attempt count is marked `gave_up` (acked, so
+  Meta stops retrying) rather than retried forever. `whatsapp-webhook/index.ts`
+  was rewritten to call this instead of the old bare upsert, and its
+  shipment-lookup/update code (`processInboundMessage`) now checks and
+  throws on every real database error instead of discarding it — a
+  genuine failure now calls `fail_webhook_event` and returns a retryable
+  `500`, never a `200` for work that didn't complete. New pure-logic
+  file `whatsapp-webhook/idempotency.ts` (`decideClaimAction`,
+  `categorizeError`) mirrors the SQL's branching for testing, same
+  pattern as `_shared/rateLimit.ts`'s `wouldClaimSucceedPure`; production
+  always goes through the real RPC. New shared helper
+  `_shared/webhookIdempotency.ts` wraps the three RPCs, matching
+  `_shared/rateLimit.ts`'s explicit-error-check-and-throw convention.
+- **Tested**: new `tests/unit/webhook_idempotency_test.ts` (11 cases) —
+  first delivery, completed duplicate, retry after failure (under and
+  at the attempt cap), a `legacy_unverified` row treated as retryable
+  rather than assumed successful, fresh vs. stale `processing` (in-
+  progress vs. recovered), the stale boundary itself, a duplicate after
+  `gave_up`, and `categorizeError` never leaking a raw message. All 81
+  Deno unit tests pass (70 prior + 11 new); `deno check` clean on every
+  new/modified file. **Flagged as not independently automatable in this
+  pass, matching this project's own standard for the OAuth-state race
+  logic before it:** the advisory lock's actual cross-transaction
+  concurrency guarantee (needs a live Postgres instance with genuinely
+  concurrent transactions) and confirming an invalid signature truly
+  never creates a row (true by code-path order, confirmed by direct
+  reading and by `crypto_test.ts`'s existing exhaustive
+  `verifyMetaSignature` coverage, but not a new automated test in its
+  own right).
+- **Safe WhatsApp rate-limit test designed, replacing an unsafe one.**
+  `DEPLOYMENT_RUNBOOK.md`'s smoke test for the 10/hour limit previously
+  required 10 real sends to Meta before the 11th was blocked. Verified
+  directly against `claim_whatsapp_send_slot`'s actual SQL: it counts
+  pre-existing rows `>= max_count` *before* its own insert, so seeding
+  exactly 10 (not 9) rows for a dedicated test identity makes one real
+  authenticated call attempt #11, guaranteed blocked before the function
+  ever reads `whatsapp_config` or calls Meta. The new procedure seeds
+  those 10 rows via direct SQL through the Supabase SQL editor (the same
+  precedented, code-path-free pattern `pilot_authorized_emails` already
+  uses for seeding and lockout recovery) — no `dryRun` flag or any other
+  new endpoint parameter was added anywhere. Cleans up only the exact
+  seeded row ids afterward, never a broad time/user-scoped delete. A
+  separate, distinct smoke test (row 18) retains one ordinary real send
+  as the owner, confirming the send path itself still works.
+- **CORS smoke test corrected.** The prior single "restricted CORS" row
+  conflated two different things: a no-`Origin` request only ever
+  bypasses *browser* CORS evaluation, never authentication itself. Split
+  into three rows: no `Origin` + no token → `401`; no `Origin` + a valid
+  authorized bearer token → reaches the endpoint normally; an
+  unauthorized real browser `Origin` → fails the CORS preflight (the one
+  case the original row already covered correctly).
+- **Mandatory frontend preflight added** to `DEPLOYMENT_RUNBOOK.md`
+  Section A, as a hard gate immediately before Section B: open the
+  hosted sign-in page in a clean session, complete a real magic-link
+  login, confirm the *hosted* dashboard source (not the local repo)
+  already contains the session-bootstrap code and `authedFetch`, confirm
+  a real protected request carries an `Authorization: Bearer` header,
+  record the exact frontend commit GitHub Pages is currently serving,
+  and stop before Section B if it isn't the expected version.
+- **Two stale doc spots corrected in `UTOPIA_CURRENT_SPEC.md`,
+  pinpointed by direct line search rather than a general re-read**: the
+  "Hosting" section still called the real magic-link login "a
+  lightweight, explicitly non-secure sign-in gate" (accurate for the
+  *old* shared-password mechanism this replaced, stale for the current
+  one), and the "Planned (not built)" list called backend-enforced
+  authentication itself "not built" and the sign-in "a client-side
+  deterrent only" — directly contradicting this same document's own
+  "Repository status vs. deployed status" and "Authentication" sections,
+  which already correctly said the opposite (frontend deployed and
+  live; backend implemented, tested, and committed, not deployed; live
+  endpoints currently ignore the token). Both corrected to match; the
+  backend-auth bullet was removed from "Planned (not built)" entirely
+  rather than reworded, since "planned, not built" was never an accurate
+  description of code that already exists and is tested.
+- **`SECURITY_AND_PILOT_BLOCKERS.md`** gained a dedicated "Webhook
+  idempotency" section documenting the bug and the fix (see above), and
+  its Edge Function reconciliation table's `whatsapp-webhook` row was
+  updated to describe the real state-machine claim instead of "insert-
+  before-ack."
+- **Not done this pass:** nothing was deployed, no migration was applied
+  to the live Supabase project, no credential was rotated, and no
+  external Meta/Microsoft/Supabase configuration was changed.
