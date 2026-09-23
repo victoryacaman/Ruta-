@@ -1245,3 +1245,116 @@ the one live change made was the owner's own, in the Supabase console.
   redeployed, and Section B was not started. The only live change was
   the owner's own Supabase Auth Site URL/Redirect URLs correction,
   described above.
+
+## 2026-09-24 — Section B: production deployment (real migrations applied, all 17 functions redeployed)
+
+The actual deployment, run one owner-confirmed step at a time against
+the real `gcrnarueiybbavmkzhcv` project, exactly as
+`DEPLOYMENT_RUNBOOK.md` Section B prescribes. Everything below is now
+**live**, not committed-but-undeployed — the first time that's true
+anywhere in this project's history.
+
+- **Pre-deployment safety net.** The project is on Supabase's Free
+  plan, which has no native scheduled/PITR backups. Took an
+  application-level snapshot instead: full data for the small,
+  non-secret tables; all 58 `risk_snapshots` rows minus the bulky
+  `full_response` blob (row count is the integrity check there);
+  presence-only flags (never values) for `whatsapp_config` and
+  `excel_oauth`'s secret columns; the full pre-migration schema for all
+  7 tables. Delivered to the owner as a file.
+- **All four migrations applied, one at a time, each verified before
+  the next.** `security_hardening` (creates `pilot_authorized_emails`,
+  `oauth_states`, `whatsapp_webhook_events`, `whatsapp_send_log`, adds
+  `whatsapp_config.meta_app_secret`), `decision_integrity` (adds
+  `risk_snapshots.environment`/`computation_source`/
+  `signal_fingerprint`/`computation_count`/`last_computed_at`, backfills
+  all 58 existing rows to the honest `'unknown'` default), the
+  `claim_whatsapp_send_slot` rate-limit function, then
+  `webhook_idempotency` (the processing-state columns and
+  `claim_webhook_event`/`complete_webhook_event`/`fail_webhook_event`).
+  Pre-existing row counts confirmed unchanged after all four:
+  `erp_config` 1, `risk_snapshots` 58, `recommendation_events` 0,
+  `whatsapp_config` 1, `risk_location_config` 1, `shipments` 0,
+  `excel_oauth` 1.
+- **`pilot_authorized_emails` seeded with exactly one row** —
+  `victoryacaman@gmail.com`, confirmed by exact string and length match
+  before any gated function was touched. Getting this step wrong would
+  have locked the owner out on first use; it didn't.
+- **`whatsapp_config.meta_app_secret` populated by the owner** directly
+  via the Supabase Table Editor once the column existed (it can't be
+  set before migration 1 runs, since the column doesn't exist until
+  then) — confirmed present, 32 characters, matching Meta's real App
+  Secret format. Value never seen or handled by this session.
+- **Microsoft redirect URI reconfirmed unchanged** — the owner checked
+  Azure Portal directly; `excel-oauth-callback`'s URL is still
+  registered as a Web redirect URI, no drift.
+- **All 17 Edge Functions redeployed**, in the order the runbook
+  specifies: the 14 non-OAuth `requireAuthorizedUser`-gated functions
+  as one batch (`decisions-list`, `erp-inventory`, `excel-browse`,
+  `excel-select-workbook`, `excel-status`, `recommendation-action`,
+  `request-tracking-update`, `risk-location-settings`,
+  `risk-recommendation`, `send-whatsapp-alert`, `shipments-create`,
+  `shipments-list`, `whatsapp-setup-tracking-template`,
+  `whatsapp-webhook-subscription`), then `excel-oauth-start` +
+  `excel-oauth-callback` together (an old-start/new-callback mismatch
+  would have broken in-flight Microsoft connections), then
+  `whatsapp-webhook` last, only after the Meta secret and redirect URI
+  were both confirmed. Every deploy verified individually
+  (`list_edge_functions` version bump) and with a live check of the
+  expected new behavior. `verify_jwt` left at `false` throughout,
+  unchanged from the existing configuration — these functions implement
+  their own auth via `requireAuthorizedUser`, not Supabase's platform
+  JWT gate, and changing that now would have been an untested,
+  unrequested behavior change.
+- **The core vulnerability this entire engagement has been about is
+  now closed in production, confirmed live, not assumed:** calling
+  `decisions-list`, `erp-inventory`, `shipments-list`,
+  `risk-location-settings`, and every other previously-open gated
+  function with no `Authorization` header now returns `401` — these
+  were completely unauthenticated endpoints minutes earlier in the
+  same session.
+- **`excel-debug` deleted** by the owner via the Supabase dashboard
+  (no MCP tool exists to do this directly) — the one piece of confirmed
+  dead weight from this project's function inventory. `storm-signal`
+  left in place, unchanged, per the existing recommendation.
+- **Section C production-safe smoke tests: 12 of 21 run and passed,
+  9 deferred (not failed).** Passed directly (curl/SQL, no browser):
+  garbage bearer token -> 401 (row 5); all 16 gated functions, no auth
+  header -> 401, corrected to use POST where the function is POST-only
+  (row 8); an already-used OAuth state seeded and tested against
+  `excel-oauth-callback` -> generic `invalid_state` redirect, no token
+  or verifier leaked, test row cleaned up after (row 10); invalid Meta
+  webhook signature -> 401 with zero rows created, confirmed by
+  `message_id` (row 12); no-Origin/no-token -> 401 (row 18);
+  disallowed browser Origin preflight -> 403 with no CORS headers (row
+  20). Confirmed at the data level, not through a live authenticated
+  call: all 58 pre-existing `risk_snapshots` rows are honestly
+  `environment='unknown'`, so `decisions-list`'s default `scope=pilot`
+  view correctly excludes them all (row 17). Passed via a guided
+  browser walkthrough with the owner: authorized login, session
+  restoration, sign-out actually invalidating the session, every
+  dashboard view rendering with no errors (one view briefly showed a
+  cold-start delay on `risk-recommendation`, resolved on its own with a
+  real `200` and real weather/storm data — not a bug), and the Excel
+  workbook/table picker working end-to-end against the real connected
+  OneDrive account (rows 1, 3, 4, 7, 21). Rows 2/6 (non-allowlisted
+  email -> 403) were attempted but blocked by Supabase Auth's own
+  email-sending rate limit, not a code issue. Rows 9, 11, 13, 14, 15,
+  16, 19 were deferred — each needs either a real external action
+  (a genuine Microsoft OAuth consent, a real inbound/outbound WhatsApp
+  message, a dedicated second test identity never set up, or the
+  owner's own session token) that this pass didn't require to confirm
+  the deployment itself is sound.
+- **Webhook failure monitoring checked for the first time against the
+  live table**, per Section G: zero `failed`, `gave_up`, or stale
+  `processing` rows. Clean.
+- **Cosmetic, unrelated finding, not investigated further:** the
+  dashboard's "Buenos días, Ana." greeting is a hardcoded literal
+  string in the translation table, never wired to the real signed-in
+  user's identity — pre-existing, not introduced by this pass, not a
+  security issue.
+- **Post-deployment verification record filled in** in
+  `DEPLOYMENT_RUNBOOK.md` Section E with the real values above.
+- **Not done this pass:** the frontend was not redeployed (unchanged,
+  confirmed still byte-identical to the repo); nothing outside the
+  ordered Section B/C steps above was touched.

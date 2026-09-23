@@ -380,37 +380,77 @@ Fill in after Section C passes. No secret value of any kind belongs in
 this record — only names, paths, hashes, dates, and pass/fail outcomes.
 
 ```text
-Deployment date:            ______________________
-Release commit hash:        ______________________
+Deployment date:            2026-09-24
+Release commit hash:        b5ddf3d
 Migrations applied:
-  [ ] 20260922000000_security_hardening.sql
-  [ ] 20260922010000_decision_integrity.sql
-  [ ] 20260923000000_atomic_rate_limit.sql
-  [ ] 20260924000000_webhook_idempotency.sql
+  [x] 20260922000000_security_hardening.sql   (registered as 20260923185628_security_hardening)
+  [x] 20260922010000_decision_integrity.sql   (registered as 20260923185917_decision_integrity)
+  [x] 20260923000000_atomic_rate_limit.sql    (registered as 20260923190035_atomic_rate_limit)
+  [x] 20260924000000_webhook_idempotency.sql  (registered as 20260923190141_webhook_idempotency)
+  All four applied via mcp__Supabase__apply_migration, one at a time,
+  each confirmed via list_migrations + a direct check of the new
+  tables/columns/functions before moving to the next. Pre-existing data
+  untouched throughout (row counts diffed against the pre-migration
+  snapshot: erp_config 1, risk_snapshots 58, recommendation_events 0,
+  whatsapp_config 1, risk_location_config 1, shipments 0, excel_oauth 1
+  — all unchanged after all four migrations).
 Functions redeployed (17):
-  [ ] decisions-list                        [ ] risk-location-settings
-  [ ] erp-inventory                         [ ] risk-recommendation
-  [ ] excel-browse                          [ ] send-whatsapp-alert
-  [ ] excel-oauth-callback                  [ ] shipments-create
-  [ ] excel-oauth-start                     [ ] shipments-list
-  [ ] excel-select-workbook                 [ ] whatsapp-setup-tracking-template
-  [ ] excel-status                          [ ] whatsapp-webhook
-  [ ] recommendation-action                 [ ] whatsapp-webhook-subscription
-  [ ] request-tracking-update
+  [x] decisions-list                        [x] risk-location-settings
+  [x] erp-inventory                         [x] risk-recommendation
+  [x] excel-browse                          [x] send-whatsapp-alert
+  [x] excel-oauth-callback                  [x] shipments-create
+  [x] excel-oauth-start                     [x] shipments-list
+  [x] excel-select-workbook                 [x] whatsapp-setup-tracking-template
+  [x] excel-status                          [x] whatsapp-webhook
+  [x] recommendation-action                 [x] whatsapp-webhook-subscription
+  [x] request-tracking-update
+  Order followed: the 14 non-OAuth gated functions as one batch, then
+  excel-oauth-start + excel-oauth-callback together, then
+  whatsapp-webhook last (after meta_app_secret was confirmed populated
+  and the Microsoft redirect URI was reconfirmed unchanged). Each
+  deploy verified individually via list_edge_functions (version bump +
+  updated_at) plus a live curl check of the expected new behavior
+  (401 with no/garbage auth, or the correct protocol-specific response
+  for the two unauthenticated-by-design callbacks).
 Deployed-only functions (not redeployed, action taken):
-  [ ] excel-debug — deleted / left in place (circle one)
-  [ ] storm-signal — left in place (no action expected)
-Dashboard version/commit already live:  ______________________
-Tester name/email:          ______________________
-Test outcome (Section C, # 1-21):  ______ / 21 passed
+  [x] excel-debug — deleted (owner, via Supabase dashboard)
+  [x] storm-signal — left in place (no action expected)
+Dashboard version/commit already live:  ae541c8 (unchanged; confirmed
+  byte-identical to the repo before this release, no frontend redeploy
+  was part of this pass)
+Tester name/email:          victoryacaman@gmail.com (owner)
+Test outcome (Section C, # 1-21):  12 / 21 run and passed; 9 deferred
+  (not failed — see exceptions below). Passed: 1, 3, 4, 5, 7, 8, 10,
+  12, 17 (data-level), 18, 20, 21.
   (Section F's staging-only reliability tests are never run against
   production and are not part of this count.)
-Webhook failure monitoring check performed (Section G):  [ ]
-  failed/gave_up/stale-processing count at check time: ______
-  all explained/resolved:  yes / no
+Webhook failure monitoring check performed (Section G):  [x]
+  failed/gave_up/stale-processing count at check time: 0 (empty result
+  set — no rows in any of those states)
+  all explained/resolved:  yes (nothing to explain — clean)
 Remaining exceptions or deferred items:
-  ______________________________________________________
-  ______________________________________________________
+  - Rows 2, 6 (non-allowlisted email -> 403): blocked by Supabase
+    Auth's own email-sending rate limit during this session, not a
+    code issue — retry once the quota resets. Underlying check
+    (`requireAuthorizedUser`'s case-insensitive allowlist lookup) is
+    already confirmed correct by direct code reading.
+  - Row 9 (real Microsoft OAuth connect flow): not run this pass —
+    the existing Excel connection was left untouched rather than
+    re-authorizing it unnecessarily.
+  - Row 11 (valid Meta webhook signature): needs either a real
+    inbound WhatsApp reply or the owner computing a signature locally
+    with their own copy of the app secret — not run this pass.
+  - Row 13 (duplicate delivery, completed): depends on row 11 first
+    producing a genuinely completed event — not run this pass.
+  - Row 14 (WhatsApp rate-limit safe procedure): the dedicated second
+    test identity (Section A precondition 11) was never actually set
+    up — not run this pass.
+  - Rows 15, 16 (real WhatsApp sends — integration check, per-shipment
+    cooldown): not run this pass; both require the owner to trigger a
+    real send from the dashboard.
+  - Row 19 (no Origin, valid token -> 200): needs a real session
+    token, best run directly by the owner from their own terminal
+    with their own captured token — not run this pass.
 ```
 
 ## F. Staging-only reliability tests
