@@ -1198,3 +1198,50 @@ step 5 was updated to match. This entry exists only to point future
 readers of the earlier "row 18" mention to the current row number; the
 earlier entry's text is left exactly as written, per this file's
 append-only rule.
+
+## 2026-09-24 — Section A frontend preflight run; real Supabase Auth Site URL/redirect misconfiguration found and fixed live
+
+Walked the mandatory Section A frontend preflight (`DEPLOYMENT_RUNBOOK.md`
+precondition 12) end to end with the owner, one step at a time, in a
+real incognito browser session. Read-only from this side throughout —
+the one live change made was the owner's own, in the Supabase console.
+
+- **Real magic-link login failed on the first attempt.** The link
+  redirected to `http://localhost:3000` instead of the hosted
+  dashboard, dead-ending the session bootstrap. Checked the code first,
+  not assumed: `index.html`'s `signInWithOtp` call already requests
+  `emailRedirectTo: 'https://victoryacaman.github.io/Ruta-/ruta-dashboard-fixed.html'`
+  correctly — this was never a code bug. Root cause: Supabase Auth
+  silently falls back to the project's **Site URL** whenever the
+  requested `emailRedirectTo` isn't present in the **Redirect URLs**
+  allow-list, and the Site URL was still a local-dev value. The owner
+  corrected both directly in the Supabase console (Authentication →
+  URL Configuration) — Site URL updated to the real hosted URL, both
+  hosted dashboard pages added to the Redirect URLs allow-list. A
+  freshly-requested magic link then completed successfully.
+- **This closes, as confirmed rather than assumed, two of Section A
+  precondition 4's items** ("Site URL is correct," "redirect allow-list
+  contains both hosted dashboard pages") that a prior pass could only
+  mark unconfirmed/manual. It would have been a real pilot-blocking bug
+  left as-is: any first real user's magic-link login would have
+  dead-ended identically.
+- **Rest of the preflight, run after the fix, all passed:** dashboard
+  loads with a real authenticated session; served source contains
+  `getSession`/`authedFetch` (pre-verified via direct fetch, matching
+  the earlier Section A report); `Authorization: Bearer` correctly
+  attached to protected requests (confirmed via DevTools on a live
+  request); session survives a reload; sign-out actually invalidates
+  the session (reload after sign-out stays on the sign-in page); the
+  GitHub Pages-served frontend (`ae541c8`) is byte-identical to the
+  repository, no drift from the intended release (`main` HEAD `2f6adf8`
+  at the time).
+- **Separately noted, not a new finding:** live calls to
+  `risk-location-settings` and `risk-recommendation` failed with CORS
+  errors during this same check — expected, since those functions are
+  still running their pre-hardening, currently-deployed code and
+  Section B (the backend redeploy) has not happened. The dashboard
+  degraded gracefully (fallback banners) rather than breaking.
+- **Not done this pass:** no migration was applied, no function was
+  redeployed, and Section B was not started. The only live change was
+  the owner's own Supabase Auth Site URL/Redirect URLs correction,
+  described above.
