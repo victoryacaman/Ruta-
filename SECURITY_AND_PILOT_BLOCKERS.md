@@ -154,7 +154,10 @@ shipment endpoints both require authentication:**
   `decisions-list`.
 - `request-tracking-update` — anyone who supplies a valid shipment ID can
   trigger a **real outbound WhatsApp message** to that shipment's real
-  driver, using the project's real Meta credentials. No rate limit.
+  driver, using the project's real Meta credentials. No rate limit in
+  the currently deployed version; a race-safe per-shipment cooldown is
+  implemented in the repository and awaits deployment (see "Rate
+  limiting" below).
 - `send-whatsapp-alert` — accepts a caller-supplied recipient number
   (`to`) and will send using the stored access token to **any** phone
   number the caller names, not just the configured test recipient. This is
@@ -163,8 +166,10 @@ shipment endpoints both require authentication:**
 - `whatsapp-webhook` (POST) — see the dedicated finding below; this one
   writes to the `shipments` table based on **unverified** inbound content.
 
-**No rate limiting exists anywhere in this project**, on any endpoint,
-read or write. (For comparison, a sibling project in this same account
+**No rate limiting exists in the currently deployed production
+functions.** Race-safe rate limiting is implemented and tested in the
+repository but awaits deployment (see "Rate limiting" below). (For
+comparison, a sibling project in this same account
 recently added a per-IP failed-attempt throttle to two PIN/passcode-gated
 functions — the same pattern would directly apply to the write-capable
 endpoints above, several of which currently have no gate to even

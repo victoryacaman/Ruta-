@@ -23,22 +23,27 @@ wrong along the way). Every capability below is tagged:
   synthetic, not a real customer's.
 - **Planned** — not built yet.
 
-## Repository status vs. deployed status (as of 2026-09-23)
+## Repository status vs. deployed status (as of 2026-09-24)
 
 As of this date, a full authentication/authorization hardening pass —
 real Supabase Auth, a `pilot_authorized_emails` allowlist gating 15 of
 the 17 local/repo Edge Functions, real Microsoft OAuth `state`+PKCE
-validation, real Meta webhook signature verification, and a race-safe
-rate limit — is **written, unit- and integration-tested, and committed to
-the repository**. **Part of it is already deployed: the dashboard's own
+validation, real Meta webhook signature verification, a race-safe rate
+limit, and a race-safe webhook idempotency/retry-recovery state machine
+for `whatsapp-webhook` (fixing a confirmed retry-loss bug — see
+`SECURITY_AND_PILOT_BLOCKERS.md`'s "Webhook idempotency" section) — is
+**written, unit- and integration-tested, and committed to the
+repository**. **Part of it is already deployed: the dashboard's own
 frontend (`index.html`, `ruta-dashboard-fixed.html`) was pushed to `main`
 and is already live on GitHub Pages, confirmed directly against the
 hosted URLs** — a real magic-link sign-in and a real bearer session on
 every call. **The backend half is not deployed** — none of the 19
 Edge Functions (17 in this repo + 2 deployed-only — see the full
 reconciliation table in `SECURITY_AND_PILOT_BLOCKERS.md`) have been
-redeployed with any of this, and none of the 3 pending migrations have
-been applied to the live database. The deployment plan itself lives in
+redeployed with any of this, and none of the four pending migrations
+have been applied to the live database. Production remains unchanged
+and insecure — no auth, no signature check, no rate limit, no webhook
+idempotency fix — until that deployment actually happens. The deployment plan itself lives in
 [`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md); `SECURITY_AND_PILOT_BLOCKERS.md`
 has the full per-function detail; `BUILD_LOG.md`'s 2026-09-22/2026-09-23
 entries record how each fix was built and verified.

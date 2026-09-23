@@ -234,12 +234,27 @@ WhatsApp webhook) mid-flight.
 10. **Re-run the full Section C smoke-test list end-to-end against
     production**, then fill in Section E's verification record.
 
-## C. Production smoke tests
+## C. Production-safe smoke tests
 
 Run every row below against the live system after Section B completes.
-Row 17 (the WhatsApp rate limit) has a full safe procedure in its own
+Row 14 (the WhatsApp rate limit) has a full safe procedure in its own
 subsection right after the table — do not run the naive "send 11 real
 messages" approach.
+
+**Every row in this table is safe to run against the live production
+system as-is.** Production testing must never: edit a real shipment
+into an invalid state; temporarily break a production constraint;
+corrupt production configuration; or trigger repeated messages to a
+real person. The three tests that require exactly those things
+(forcing a shipment update to fail, hand-editing a row into a stale
+state, concurrency stress) — plus an attempt-cap/`gave_up` transition
+test — live in **Section F, "Staging-only reliability tests,"** and
+must only ever be run against a dedicated staging/test Supabase project
+or a disposable local database. Row 13 below (duplicate delivery,
+already completed) is the one duplicate-delivery test kept here,
+because redelivering an already-successfully-processed message is
+inherently harmless — it is the one production-safe reliability check
+in this set.
 
 | # | Test | Steps | Expected result |
 | --- | --- | --- | --- |
@@ -256,19 +271,16 @@ messages" approach.
 | 11 | Valid Meta webhook signature | Send a correctly-signed test payload to `whatsapp-webhook` | 200; a `whatsapp_webhook_events` row exists with `status='completed'` and `processed_at` set |
 | 12 | Invalid Meta webhook signature | Send a tampered body or wrong-secret signature to `whatsapp-webhook` | 401; **no row created at all** in `whatsapp_webhook_events` (confirm by `message_id`, not just by response code) |
 | 13 | Duplicate delivery, completed | Send the same `message_id` payload twice, letting the first fully succeed | Second delivery is a no-op (`duplicate_completed`, matched shipment not touched again); still 200 |
-| 14 | Duplicate delivery, failed | Force the shipment update to fail once (e.g. temporarily point `driver_phone` at a value that violates a constraint, or simulate via a broken `shipments.update` for one delivery), redeliver the same `message_id` | First delivery: 500, row status `failed`. Second (retry): reprocessed for real, ends `completed` |
-| 15 | Stale-processing recovery | Manually set an existing row to `status='processing'`, `updated_at` older than 5 minutes ago (via SQL), then redeliver that `message_id` | Reclaimed and reprocessed (`attempt_count` incremented), not skipped as in-progress |
-| 16 | Concurrent duplicate deliveries | Best-effort only — fire two requests with the identical `message_id` as close to simultaneously as your tooling allows (e.g. two parallel `curl` processes) | At most one reaches `completed` with a real shipment update; the other gets `duplicate_in_progress` (409) or `duplicate_completed` (200), never a second shipment update. **Caveat:** true simultaneity can't be guaranteed by a shell script — this is a best-effort live check, not a proof; the underlying guarantee is the `pg_advisory_xact_lock` in `claim_webhook_event`, not this test |
-| 17 | WhatsApp hourly rate limit (safe procedure) | See the dedicated subsection immediately below — **do not send 10 real messages to test this** | `429` on the one real call made, zero real Meta sends during the test |
-| 18 | `send-whatsapp-alert` integration still works | One ordinary real send via `send-whatsapp-alert` as the **owner** (not the rate-limit test identity), to `whatsapp_config.test_recipient_number` | Real message arrives; confirms the rate-limit redesign didn't break the actual send path |
-| 19 | WhatsApp per-shipment cooldown | Call `request-tracking-update` twice within 60 minutes for the same shipment | Second call blocked with a 429/cooldown response, no duplicate message sent |
-| 20 | Decision-history demo/pilot separation | Call `decisions-list` with default params | Response scope excludes `environment` values other than `pilot` by default, matches `decisions_metrics_test.ts`'s expectations |
-| 21 | No Origin, no token | Call a protected endpoint with no `Origin` header and no `Authorization` header (e.g. plain `curl`) | `401` — a missing `Origin` only bypasses *browser* CORS evaluation, it is never a substitute for authentication |
-| 22 | No Origin, valid token | Call a protected endpoint with no `Origin` header but a valid authorized bearer token (e.g. plain `curl`) | Reaches the endpoint normally, `200` — confirms server-to-server/tooling access still works without a browser |
-| 23 | Unauthorized browser origin | Send a preflight `OPTIONS` request with a real `Origin` header not on the allow-list | `403`, no CORS headers at all — the browser aborts before the real request is ever sent |
-| 24 | Existing Excel functionality | Browse/select a workbook via the Add Tools picker as the authorized owner | Real OneDrive file/table names returned; selection saves correctly |
+| 14 | WhatsApp hourly rate limit (safe procedure) | See the dedicated subsection immediately below — **do not send 10 real messages to test this** | `429` on the one real call made, zero real Meta sends during the test |
+| 15 | `send-whatsapp-alert` integration still works | One ordinary real send via `send-whatsapp-alert` as the **owner** (not the rate-limit test identity), to `whatsapp_config.test_recipient_number` | Real message arrives; confirms the rate-limit redesign didn't break the actual send path |
+| 16 | WhatsApp per-shipment cooldown | Call `request-tracking-update` twice within 60 minutes for the same shipment | Second call blocked with a 429/cooldown response, no duplicate message sent |
+| 17 | Decision-history demo/pilot separation | Call `decisions-list` with default params | Response scope excludes `environment` values other than `pilot` by default, matches `decisions_metrics_test.ts`'s expectations |
+| 18 | No Origin, no token | Call a protected endpoint with no `Origin` header and no `Authorization` header (e.g. plain `curl`) | `401` — a missing `Origin` only bypasses *browser* CORS evaluation, it is never a substitute for authentication |
+| 19 | No Origin, valid token | Call a protected endpoint with no `Origin` header but a valid authorized bearer token (e.g. plain `curl`) | Reaches the endpoint normally, `200` — confirms server-to-server/tooling access still works without a browser |
+| 20 | Unauthorized browser origin | Send a preflight `OPTIONS` request with a real `Origin` header not on the allow-list | `403`, no CORS headers at all — the browser aborts before the real request is ever sent |
+| 21 | Existing Excel functionality | Browse/select a workbook via the Add Tools picker as the authorized owner | Real OneDrive file/table names returned; selection saves correctly |
 
-### Safe WhatsApp rate-limit test procedure (for row 17)
+### Safe WhatsApp rate-limit test procedure (for row 14)
 
 The naive version of this test — call `send-whatsapp-alert` 11 times and
 confirm the 11th is blocked — requires 10 real messages to actually reach
@@ -390,8 +402,100 @@ Deployed-only functions (not redeployed, action taken):
   [ ] storm-signal — left in place (no action expected)
 Dashboard version/commit already live:  ______________________
 Tester name/email:          ______________________
-Test outcome (Section C, # 1–24):  ______ / 24 passed
+Test outcome (Section C, # 1-21):  ______ / 21 passed
+  (Section F's staging-only reliability tests are never run against
+  production and are not part of this count.)
+Webhook failure monitoring check performed (Section G):  [ ]
+  failed/gave_up/stale-processing count at check time: ______
+  all explained/resolved:  yes / no
 Remaining exceptions or deferred items:
   ______________________________________________________
   ______________________________________________________
 ```
+
+## F. Staging-only reliability tests
+
+These verify real failure/recovery paths that require putting the
+system into a state production must never be put into on purpose:
+forcing a real constraint violation, hand-editing a row into a stale
+state, or stressing a concurrency guarantee. **Run these only against a
+dedicated staging/test Supabase project or a disposable local database
+— never against the production project.** They are not part of Section
+C's count and are not required to pass before a production release; run
+them whenever the webhook idempotency logic itself changes.
+
+| # | Test | Steps | Expected result |
+| --- | --- | --- | --- |
+| 1 | Duplicate delivery, failed | On a **staging** shipment record, force the shipment update to fail once (e.g. temporarily point `driver_phone` at a value that violates a constraint, or simulate via a broken `shipments.update` for one delivery), redeliver the same `message_id` | First delivery: 500, row status `failed`. Second (retry): reprocessed for real, ends `completed` |
+| 2 | Stale-processing recovery | On a **staging** row, manually set `status='processing'`, `updated_at` older than 5 minutes ago (via SQL), then redeliver that `message_id` | Reclaimed and reprocessed (`attempt_count` incremented), not skipped as in-progress |
+| 3 | Concurrent duplicate deliveries | Best-effort only, against **staging** — fire two requests with the identical `message_id` as close to simultaneously as your tooling allows (e.g. two parallel `curl` processes) | At most one reaches `completed` with a real shipment update; the other gets `duplicate_in_progress` (409) or `duplicate_completed` (200), never a second shipment update. **Caveat:** true simultaneity can't be guaranteed by a shell script — this is a best-effort check, not a proof; the underlying guarantee is the `pg_advisory_xact_lock` in `claim_webhook_event`, not this test |
+| 4 | Attempt-cap and `gave_up` transition | On **staging**, engineer a shipment record so its update keeps failing, then redeliver the same `message_id` repeatedly past `max_attempts` (default 5) | Once the cap is reached, status becomes `gave_up` and the function returns `200` (stops Meta's retry storm) instead of retrying forever; `attempt_count` never exceeds the cap |
+
+## G. Webhook failure monitoring
+
+Operational monitoring for the pilot, once this is deployed — not a
+new automated alerting system (none exists in this repository, and
+none is added by this pass). This section documents a manual
+procedure honestly rather than implying automation that doesn't exist.
+
+**Safe counting query.** Run via the Supabase SQL editor. It only
+aggregates and never selects message content — `whatsapp_webhook_events`
+has no column that stores WhatsApp message bodies at all, so this is
+structurally, not just procedurally, safe:
+
+```sql
+select status, count(*) as count
+from whatsapp_webhook_events
+where status in ('failed', 'gave_up')
+   or (status = 'processing' and updated_at < now() - interval '15 minutes')
+group by status;
+```
+
+**Investigation query**, for the rows the count above flags. Never
+display or export full WhatsApp message contents unnecessarily — there
+is none to display in this table, but this query still selects only the
+operational columns actually needed to investigate:
+
+```sql
+select message_id, shipment_id, status, attempt_count,
+       last_error_category, received_at, claimed_at, processed_at,
+       updated_at
+from whatsapp_webhook_events
+where status in ('failed', 'gave_up')
+   or (status = 'processing' and updated_at < now() - interval '15 minutes')
+order by updated_at desc;
+```
+
+**Every `gave_up` event must be investigated manually during the
+pilot** — a message that gave up means a real inbound WhatsApp reply
+was never fully processed. Record the following per event (copy this
+block, fill it in, and keep it with your own pilot operating notes —
+this repository does not prescribe where):
+
+```text
+Message ID:            ______________________
+Shipment ID (if any):  ______________________
+Attempt count:         ______________________
+Error category:        ______________________
+Received at:           ______________________
+Last updated at:       ______________________
+Resolution:            ______________________
+```
+
+**Temporary manual pilot notification procedure.** Until an automated
+internal monitor exists (none does today), the pilot owner runs the
+counting query above once daily (a fixed morning check is a reasonable
+default) via the Supabase SQL editor, and investigates any non-zero
+row the same day using the investigation query and the record-keeping
+template above. This is a manual, human-run procedure — no automatic
+alert fires on its own.
+
+**Pre-pilot acceptance condition.** Before onboarding a real pilot
+customer, the counting query above must return zero rows for
+`failed`, `gave_up`, and stale `processing` — or, for any non-zero row,
+a completed record-keeping entry above showing it was investigated and
+resolved. An unexplained `failed`, stale `processing`, or `gave_up`
+event is a blocker, not a note.
+
+This check is also tracked in Section E's post-deployment verification
+record.

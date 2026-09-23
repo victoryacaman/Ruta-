@@ -1085,3 +1085,99 @@ every prior pass.
 - **Not done this pass:** nothing was deployed, no migration was applied
   to the live Supabase project, no credential was rotated, and no
   external Meta/Microsoft/Supabase configuration was changed.
+
+## 2026-09-24 — Rate-limit wording swept and corrected; runbook split into production-safe vs. staging-only tests; webhook failure monitoring documented; spec date corrected (no deployment, no code change)
+
+A second, narrower correction pass on top of the same-day webhook
+idempotency pass above — closing two wording gaps that pass left, and
+adding the operational pieces the task explicitly called for.
+Documentation and the runbook only; no application code, migration, or
+external configuration changed.
+
+- **Rate-limiting wording swept for bare/unqualified claims.** A full
+  sweep of every doc found exactly two spots that still said rate
+  limiting doesn't exist at all, with no repo-vs-production qualifier —
+  everywhere else already correctly distinguished
+  implemented-in-repository/tested-locally from
+  still-open-in-production. Both corrected in
+  `SECURITY_AND_PILOT_BLOCKERS.md`: the "Public endpoint exposure"
+  section's global claim now reads "No rate limiting exists in the
+  currently deployed production functions. Race-safe rate limiting is
+  implemented and tested in the repository but awaits deployment."; the
+  `request-tracking-update` bullet's "No rate limit." now carries the
+  same distinction inline. Historical wording elsewhere in this file
+  (earlier entries above) is untouched, as always — this is a new entry,
+  not a rewrite of an old one.
+- **`DEPLOYMENT_RUNBOOK.md` Section C split into production-safe and
+  staging-only tests.** Three existing smoke-test rows required doing
+  something production must never do on purpose — forcing a real
+  constraint violation (duplicate delivery, failed), hand-editing a row
+  into a stale state (stale-processing recovery), and concurrency stress
+  (concurrent duplicate deliveries) — and nothing in the runbook said so
+  explicitly. Moved all three into a new `## F. Staging-only reliability
+  tests` section, explicitly scoped to a dedicated staging/test Supabase
+  project or a disposable local database, never production. Added a
+  fourth staging-only test for a scenario that had unit coverage but no
+  smoke test: the attempt-cap → `gave_up` transition. Section C (renamed
+  "Production-safe smoke tests") keeps exactly one duplicate-delivery
+  test — the already-completed case — since redelivering a
+  successfully-processed message is inherently harmless; its intro now
+  states plainly what production testing must never do (edit a real
+  shipment into an invalid state, break a production constraint,
+  corrupt production configuration, or trigger repeated messages to a
+  real person) and points to Section F for the tests that need exactly
+  that. The remaining 21 rows were renumbered 1–21; the existing safe
+  WhatsApp rate-limit procedure (already safe, no change to its
+  content) was re-anchored to its new row number.
+- **New `## G. Webhook failure monitoring` section added**, confirmed
+  first that no automated monitoring/alerting/cron exists anywhere in
+  this repository (a full grep sweep across every Edge Function and
+  migration, plus an existing first-party note already on record
+  elsewhere in this file that no scheduled job exists) — so this is
+  documented as a manual pilot procedure, not a new automated system.
+  Contains: a safe aggregate query counting `failed`, `gave_up`, and
+  stale (`processing` older than 15 minutes) rows — safe by
+  construction, since `whatsapp_webhook_events` has no column that
+  stores message content at all, not just by convention; a companion
+  investigation query listing only operational columns for the flagged
+  rows; a requirement that every `gave_up` event is manually
+  investigated during the pilot, with a copy-in record-keeping template
+  (message ID, shipment ID, attempt count, error category, timestamps,
+  resolution); a temporary manual procedure — the owner runs the
+  counting query once daily via the Supabase SQL editor until an
+  automated monitor exists — explicitly labeled manual, not automated;
+  and a pre-pilot acceptance condition that no unexplained `failed`,
+  stale `processing`, or `gave_up` row may exist before onboarding a
+  real pilot customer. Section E's post-deployment verification record
+  gained a corresponding checklist line, and its "Section C, # 1–24"
+  test-outcome line was corrected to "# 1–21" to match the restructured
+  table, with a note that Section F's tests are intentionally excluded
+  from that count.
+- **`UTOPIA_CURRENT_SPEC.md` date and status corrected.** The
+  "Repository status vs. deployed status" heading's date moved from
+  2026-09-23 to 2026-09-24. Its paragraph now names the webhook
+  idempotency/retry-recovery fix explicitly alongside the other
+  hardening items, corrects "3 pending migrations" to "four pending
+  migrations," and adds an explicit sentence that production remains
+  unchanged and insecure — no auth, no signature check, no rate limit,
+  no webhook idempotency fix — until deployment actually happens.
+  `SECURITY_AND_PILOT_BLOCKERS.md`'s existing "Webhook idempotency"
+  section and its migration/test-count references were re-checked
+  against the live code and found already accurate; no edit was needed
+  there beyond the two rate-limit wording fixes above. `CLAUDE.md` was
+  re-checked and needed no change — nothing in it references runbook
+  section letters or the corrected counts.
+- **Validated**: `markdownlint-cli` run clean against all six documents
+  (`CLAUDE.md`, `UTOPIA_CURRENT_SPEC.md`, `SECURITY_AND_PILOT_BLOCKERS.md`,
+  `BUILD_LOG.md`, `PILOT_PLAYBOOK.md`, `DEPLOYMENT_RUNBOOK.md`); every
+  relative link across all six confirmed resolving; a fresh contradiction
+  sweep across rate-limit, authentication, deployment, migration-count,
+  and test-count claims found none remaining. `git diff --stat` confirms
+  only `SECURITY_AND_PILOT_BLOCKERS.md`, `DEPLOYMENT_RUNBOOK.md`,
+  `UTOPIA_CURRENT_SPEC.md`, and this file changed — **no application
+  code changed in this pass**, and none was needed: nothing in this
+  sweep surfaced a new implementation defect. All six packaged into an
+  updated `UTOPIA_DOCUMENTATION_FINAL_REVIEW.zip`.
+- **Not done this pass:** nothing was deployed, no migration was applied
+  to the live Supabase project, no credential was rotated, and no
+  external Meta/Microsoft/Supabase configuration was changed.
