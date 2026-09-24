@@ -1249,7 +1249,7 @@ the one live change made was the owner's own, in the Supabase console.
 ## 2026-09-24 — Section B: production deployment (real migrations applied, all 17 functions redeployed)
 
 The actual deployment, run one owner-confirmed step at a time against
-the real `gcrnarueiybbavmkzhcv` project, exactly as
+the real `<project-ref>` project, exactly as
 `DEPLOYMENT_RUNBOOK.md` Section B prescribes. Everything below is now
 **live**, not committed-but-undeployed — the first time that's true
 anywhere in this project's history.
@@ -1277,7 +1277,7 @@ anywhere in this project's history.
   `whatsapp_config` 1, `risk_location_config` 1, `shipments` 0,
   `excel_oauth` 1.
 - **`pilot_authorized_emails` seeded with exactly one row** —
-  `victoryacaman@gmail.com`, confirmed by exact string and length match
+  `<owner email>`, confirmed by exact string and length match
   before any gated function was touched. Getting this step wrong would
   have locked the owner out on first use; it didn't.
 - **`whatsapp_config.meta_app_secret` populated by the owner** directly
@@ -1319,9 +1319,9 @@ anywhere in this project's history.
   left in place, unchanged, per the existing recommendation.
 - **Section C production-safe smoke tests: 12 of 21 run and passed,
   9 deferred (not failed).** Passed directly (curl/SQL, no browser):
-  garbage bearer token -> 401 (row 5); all 16 gated functions, no auth
-  header -> 401, corrected to use POST where the function is POST-only
-  (row 8); an already-used OAuth state seeded and tested against
+  garbage bearer token -> 401 (row 5); all 15 gated functions (see the
+  2026-09-23 correction note below), no auth header -> 401, corrected
+  to use POST where the function is POST-only (row 8); an already-used OAuth state seeded and tested against
   `excel-oauth-callback` -> generic `invalid_state` redirect, no token
   or verifier leaked, test row cleaned up after (row 10); invalid Meta
   webhook signature -> 401 with zero rows created, confirmed by
@@ -1411,8 +1411,8 @@ Rows 2 and 6 were blocked most of this session by Supabase Auth's own
 project-wide email-sending rate limit (confirmed via `query_logs`
 against `auth_logs`, `error_code: over_email_send_rate_limit`). Once
 the limit cleared, two attempts were made with the same non-allowlisted
-test identity (`vyacaman41@gmail.com`, `auth.users.id
-a708899e-5fa1-4e28-b3db-03f36d221afb`), recorded honestly since the
+test identity (`<test identity email>`, `auth.users.id
+<test identity user id>`), recorded honestly since the
 first one did not match the runbook's expected result.
 
 - **First attempt (21:07:16-17 UTC):** real signup/login succeeded,
@@ -1459,7 +1459,7 @@ password, entered directly into the Supabase dashboard — never shared
 in this session) via Authentication -> Emails -> SMTP Settings,
 minimum interval per user left at the default 60s. The same reload log
 confirms the limiter was raised to `30` once custom SMTP took effect.
-A subsequent real login (`victoryacaman@gmail.com`, `22:45:54`)
+A subsequent real login (`<owner email>`, `22:45:54`)
 succeeded cleanly with no rate-limit error.
 
 - **Row 9 (real Microsoft OAuth connect flow) — passed.** The Excel
@@ -1488,7 +1488,7 @@ succeeded cleanly with no rate-limit error.
   Microsoft authorization `code` with the matching `state` and
   returned `302` (the success path, no `invalid_state`); `excel_oauth`
   came back fully repopulated with a fresh `refresh_token`/
-  `access_token`, `connected_account_email = victoryacaman@gmail.com`,
+  `access_token`, `connected_account_email = <owner email>`,
   and `token_expires_at` exactly one hour out.
 - **Section C row 9 now passes.** `DEPLOYMENT_RUNBOOK.md` Section E
   updated to 17/21 passed, 4 deferred.
@@ -1509,7 +1509,7 @@ Chrome DevTools' `copy()` utility, so the owner only ever pasted once
 into Terminal with nothing left to hand-edit.
 
 - **Row 14 (WhatsApp hourly rate limit, safe procedure) — passed.**
-  `vyacaman41@gmail.com` (the same test identity from the rows 2/6
+  `<test identity email>` (the same test identity from the rows 2/6
   pass) was added to `pilot_authorized_emails`. Exactly 10 rows were
   seeded into `whatsapp_send_log` for that identity
   (`function_name='send-whatsapp-alert'`, `shipment_id=null`), then
@@ -1543,3 +1543,110 @@ into Terminal with nothing left to hand-edit.
   `function_edge_logs`.
 - **Section C is now 21/21 passed, 0 deferred.** `DEPLOYMENT_RUNBOOK.md`
   Section E updated accordingly; no remaining exceptions.
+
+## 2026-09-24 — Post-deployment reconciliation and read-only security audit
+
+Full read-only Phase 1 audit against the live project, plus a
+documentation reconciliation pass (Phase 2). No migration, redeploy,
+secret change, message, or production write of any kind — every item
+below came from `SELECT`-only queries, `list_edge_functions`,
+`get_advisors`, and one live authenticated call the owner ran
+themselves.
+
+- **Chronology correction (not a rewrite of past entries).** Several
+  earlier entries in this file are dated 2026-09-24 (Section B's
+  production deployment, the Meta app secret incident, and the doc
+  passes immediately before them), while later entries describing
+  work that could only happen *after* those (Section C rows 2/6, the
+  SMTP fix, row 9, rows 14/15/16/19) are dated 2026-09-23 — a full day
+  earlier than the deployment they depend on. This audit's own
+  `list_migrations` check shows the real apply timestamps for all 4
+  hardening migrations at ~18:56-19:01 UTC, which is ~12:56-13:01 PM
+  Honduras time (UTC-6, no DST) -- same calendar day, the 23rd. The
+  "09-24" label on those earlier entries reflects when this file was
+  drafted, not when the events happened. Per this project's
+  append-only rule, those earlier entry headers are left exactly as
+  written rather than rewritten; this note exists so the real
+  chronology (Section B deployed 09-23, same day as the Section C
+  rows that follow it in this file) is recorded plainly.
+  `DEPLOYMENT_RUNBOOK.md` Section E's "Deployment date" field has been
+  corrected accordingly, with its own note explaining the correction.
+- **Security redaction applied retroactively to this file and
+  `DEPLOYMENT_RUNBOOK.md`, per an explicit exception to the
+  append-only rule the owner authorized for exactly this purpose.**
+  The real Supabase project reference, the owner's and the test
+  identity's real email addresses, and the test identity's real
+  `auth.users.id` were replaced in-place with descriptive labels
+  (`<project-ref>`, `<owner email>`, `<test identity email>`,
+  `<test identity user id>`) everywhere they appeared in earlier
+  entries. Every event's meaning is unchanged -- only the literal
+  identifiers were removed. No entry was deleted, reordered, or had
+  its substance altered.
+- **Gated-function count corrected: 15, not 16.** A line-numbered
+  grep of every `requireAuthorizedUser(req)` call site in
+  `supabase/functions` returns 16 file matches, but one is
+  `_shared/auth.ts`'s own header *comment* ("Call
+  requireAuthorizedUser(req) first thing...") -- not a real call.
+  The genuine count is 15 real call sites; `excel-oauth-callback` and
+  `whatsapp-webhook` are correctly excluded (gated by state+PKCE and
+  Meta's HMAC signature respectively, not this guard). Row 8's
+  original "15" claim (this file, 2026-09-24 Section B entry) was
+  correct all along -- the "16" figure this same file later used was
+  the actual error, corrected in place at that line with a pointer to
+  this note. `DEPLOYMENT_RUNBOOK.md` already said "15" in both places
+  it appears and needed no change.
+- **Migration history reconciled.** The `supabase` CLI is not
+  installed in this environment; `mcp__Supabase__list_migrations`
+  was used as the read-only equivalent, noted here rather than
+  silently substituted. Remote registered timestamps
+  (`20260923185628`, `20260923185917`, `20260923190035`,
+  `20260923190141`) differ from the local migration files' authored
+  timestamps -- already explained in `DEPLOYMENT_RUNBOOK.md` Section
+  E as `apply_migration`'s normal apply-time registration, not a
+  defect. No repair run, none needed.
+- **Security Advisor: 11 INFO + 1 WARN, both recorded as open
+  items, not marked clean.** 11 tables have RLS enabled with zero
+  policies (`erp_config`, `excel_oauth`, `oauth_states`,
+  `pilot_authorized_emails`, `recommendation_events`,
+  `risk_location_config`, `risk_snapshots`, `shipments`,
+  `whatsapp_config`, `whatsapp_send_log`, `whatsapp_webhook_events`).
+  1 WARN: Auth's leaked-password-protection is disabled (unrelated to
+  these tables, off by default, a one-click toggle not yet used).
+- **RLS + grants on `pilot_authorized_emails`, `oauth_states`,
+  `whatsapp_webhook_events`, `whatsapp_send_log` -- verified safe
+  today, flagged as fragile.** `pg_class` confirms RLS enabled on all
+  4; `pg_policies` returns zero rows for all 4, matching the advisor.
+  `information_schema.role_table_grants` shows `anon`/`authenticated`
+  hold full table-level grants (SELECT/INSERT/UPDATE/DELETE/etc.) on
+  all 4 -- looked alarming in isolation, but `pg_roles` confirms
+  neither role has `rolbypassrls` or `rolsuper` (`service_role` does,
+  as expected). RLS enabled with zero policies is Postgres's
+  default-deny: with no bypass and no permissive policy, zero rows
+  are actually reachable by `anon`/`authenticated` despite the broad
+  grants. Not a live vulnerability today, but genuinely fragile --
+  recorded as an open item in `DEPLOYMENT_RUNBOOK.md` Section E
+  rather than silently marked clean.
+- **Function privileges on `claim_whatsapp_send_slot`,
+  `claim_webhook_event`, `complete_webhook_event`,
+  `fail_webhook_event` -- clean.** All 4 are `SECURITY DEFINER` with
+  a fixed `search_path=public` (never mutable or empty);
+  `has_function_privilege` confirms `anon`, `authenticated`, and
+  `public` are all denied execute, only `service_role` can call
+  them. No open item here.
+- **Section C row 17, verified live for the first time.** Previously
+  passed at the data level only. The owner ran one real authenticated
+  call to `decisions-list` with default params, piping the response
+  through `grep` so only the needed fields were shared -- never the
+  raw token or full response body. Confirmed: `scope="pilot"`,
+  `demoDataIncluded=false`, and the only distinct `environment` value
+  across the entire history array is `"pilot"`. Genuine live pass --
+  the 21/21 Section C count holds under this stricter bar too.
+- **`DEPLOYMENT_RUNBOOK.md` Section E's "Remaining exceptions" line
+  updated** from "none" to an honest two-item list (the RLS/policy
+  fragility and the disabled leaked-password-protection toggle) --
+  neither blocks the pilot, both are real, neither should be hidden
+  behind a blanket "none."
+- **Not done, and correctly so:** no migration, secret rotation,
+  function redeploy, RLS policy, or Auth setting was changed. This
+  was read-only end to end, per the explicit constraint given for
+  this audit.

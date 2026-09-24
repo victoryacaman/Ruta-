@@ -20,12 +20,15 @@ unverified:
 - **[`SECURITY_AND_PILOT_BLOCKERS.md`](./SECURITY_AND_PILOT_BLOCKERS.md)** —
   authentication status, every endpoint's real exposure, and the ordered
   list of what's required before real customer data flows through this.
-  As of 2026-09-24, a full auth/OAuth-state/webhook-signature hardening
+  As of 2026-09-23, a full auth/OAuth-state/webhook-signature hardening
   pass — plus webhook idempotency, retry recovery, bounded attempts,
-  and operational failure monitoring — is implemented and tested in the
-  repository but **not deployed** — the document distinguishes what's
-  fixed in the repository from what the live system still does today.
-  Read this before connecting anything to a real customer.
+  and operational failure monitoring — is implemented, tested,
+  **deployed, and verified live**, confirmed by all 21 of
+  `DEPLOYMENT_RUNBOOK.md` Section C's production smoke tests plus a
+  2026-09-24 post-deployment security audit. Two low-severity, non-
+  blocking items from that audit remain genuinely open (an RLS-policy
+  gap and a disabled Auth setting) and are called out explicitly rather
+  than hidden. Read this before connecting anything to a real customer.
 - **[`BUILD_LOG.md`](./BUILD_LOG.md)** — the full chronological history:
   what was built, what broke, what was found, how each fix was verified,
   and every earlier description that's since been superseded.
@@ -33,11 +36,12 @@ unverified:
   the demonstration sequence, discovery questions, pilot scope, success
   metrics, and per-ERP integration questions to resolve with a prospect.
 - **[`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md)** — the exact,
-  ordered steps to take the written-but-undeployed security-hardening
-  pass live: preconditions, release sequence, production smoke tests,
-  rollback plan, and a verification record. Read this before running any
-  deployment — it's the actual plan, not just a narrative description of
-  one.
+  ordered steps that took the security-hardening pass live on
+  2026-09-23, plus the completed verification record: preconditions,
+  release sequence, all 21 production smoke tests (passed), rollback
+  plan, and a 2026-09-24 post-deployment security audit. Read this for
+  both the release sequence and proof of what's actually been verified
+  against the live system.
 
 ## Non-negotiable design principles
 

@@ -23,41 +23,38 @@ wrong along the way). Every capability below is tagged:
   synthetic, not a real customer's.
 - **Planned** — not built yet.
 
-## Repository status vs. deployed status (as of 2026-09-24)
+## Repository status vs. deployed status (as of 2026-09-23, deployed and verified)
 
-As of this date, a full authentication/authorization hardening pass —
-real Supabase Auth, a `pilot_authorized_emails` allowlist gating 15 of
-the 17 local/repo Edge Functions, real Microsoft OAuth `state`+PKCE
+A full authentication/authorization hardening pass — real Supabase
+Auth, a `pilot_authorized_emails` allowlist gating 15 of the 17
+local/repo Edge Functions, real Microsoft OAuth `state`+PKCE
 validation, real Meta webhook signature verification, a race-safe rate
 limit, and a race-safe webhook idempotency/retry-recovery state machine
 for `whatsapp-webhook` (fixing a confirmed retry-loss bug — see
-`SECURITY_AND_PILOT_BLOCKERS.md`'s "Webhook idempotency" section) — is
-**written, unit- and integration-tested, and committed to the
-repository**. **Part of it is already deployed: the dashboard's own
-frontend (`index.html`, `ruta-dashboard-fixed.html`) was pushed to `main`
-and is already live on GitHub Pages, confirmed directly against the
-hosted URLs** — a real magic-link sign-in and a real bearer session on
-every call. **The backend half is not deployed** — none of the 19
-Edge Functions (17 in this repo + 2 deployed-only — see the full
-reconciliation table in `SECURITY_AND_PILOT_BLOCKERS.md`) have been
-redeployed with any of this, and none of the four pending migrations
-have been applied to the live database. Production remains unchanged
-and insecure — no auth, no signature check, no rate limit, no webhook
-idempotency fix — until that deployment actually happens. The deployment plan itself lives in
-[`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md); `SECURITY_AND_PILOT_BLOCKERS.md`
-has the full per-function detail; `BUILD_LOG.md`'s 2026-09-22/2026-09-23
-entries record how each fix was built and verified.
+`SECURITY_AND_PILOT_BLOCKERS.md`'s "Webhook idempotency" section) — was
+written, unit- and integration-tested, committed, **and has since been
+deployed to production and verified live** (4 migrations applied, all
+17 local functions redeployed with the hardened code, the dashboard's
+frontend already live beforehand needed no redeploy). All 21 of
+`DEPLOYMENT_RUNBOOK.md` Section C's production smoke tests pass, plus a
+2026-09-24 post-deployment read-only security audit (Security Advisor,
+RLS/grants, function privileges — see `SECURITY_AND_PILOT_BLOCKERS.md`
+and `BUILD_LOG.md` for the full evidence). Production now has: real
+auth on every gated function, real Meta signature verification, real
+rate limiting, and the webhook idempotency fix — none of it is
+theoretical or pending anymore.
 
-This does **not** change the tags below for capabilities whose actual
-*behavior* is identical live and in the repository (e.g. the scoring
-math, the WhatsApp send/receive mechanics) — those remain **Live and
-verified** where they always were. It does mean: every Edge Function
-that reads customer data, changes config, or sends a message currently
-requires **no authentication at all in production**, regardless of what
-the repository's code checks or what the already-live dashboard sends,
-until the backend half of this pass is deployed. Nowhere below should
-"Live and verified" be read as "and also already authenticated in
-production" unless stated explicitly.
+Two low-severity items surfaced by the post-deployment audit remain
+genuinely open (not blocking the pilot, not hidden behind a blanket "all
+clear"): 11 tables have RLS enabled with no explicit policy written
+(currently safe, since `anon`/`authenticated` lack RLS-bypass privilege,
+but fragile against a future mistake), and Supabase Auth's
+leaked-password-protection toggle is off. See
+`SECURITY_AND_PILOT_BLOCKERS.md`'s priority list, items 7–8, for both.
+
+The tags below (Live and verified / Deployed / Planned) describe each
+capability's actual current state, not a snapshot from before this
+deployment.
 
 ## Legacy names
 
@@ -221,7 +218,7 @@ input:
    shortfall in units × unit price = that SKU's sales exposure — **or
    `null` with a stated reason if unit price itself is unknown, never a
    silent L0** (see `BUILD_LOG.md`'s 2026-09-22 "Data integrity" entry;
-   code committed, not yet deployed). If an alternate warehouse has
+   deployed with the rest of `risk-recommendation` on 2026-09-23). If an alternate warehouse has
    stock, a candidate transfer of `min(shortfall, available)` units is
    costed at a **per-unit trucking rate read from config**
    (`risk_location_config.transfer_cost_per_unit_lps`). That transfer is
@@ -262,22 +259,23 @@ as history, with a real approval-rate figure.
   pilot-only data, adds a "decision coverage" metric, and reports which
   scope was used. Written, unit-tested (`decisions_metrics_test.ts`), and
   committed.
-- **Production status:** not deployed. The migration adding those
-  columns hasn't been applied, so the live system still mixes real usage
-  with this project's own development/testing on every page load, with
-  no flag distinguishing the two — see `SECURITY_AND_PILOT_BLOCKERS.md`.
+- **Production status:** deployed and verified live (2026-09-23). The
+  migration adding those columns is applied; `decisions-list` defaults
+  to pilot-only data. Confirmed via a real authenticated call during a
+  2026-09-24 post-deployment audit: default params return
+  `scope="pilot"`, `demoDataIncluded=false`, no non-pilot `environment`
+  value anywhere in the response — see `SECURITY_AND_PILOT_BLOCKERS.md`.
 
 ### WhatsApp — mixed, template-by-template
 
 A real Meta for Developers app and a free test WhatsApp number exist. What
-"real" covers depends on which message. **Repository status for the
-functions behind all of this (`send-whatsapp-alert`,
-`request-tracking-update`, `whatsapp-webhook`):** now require an
-authorized session (the first two) or a verified Meta signature (the
-third) in committed code — not yet deployed; the live functions remain
-open to any caller, per `SECURITY_AND_PILOT_BLOCKERS.md`. This doesn't
-change whether a message actually sends, only who's currently allowed to
-trigger it once deployed.
+"real" covers depends on which message. **`send-whatsapp-alert` and
+`request-tracking-update` now require an authorized session, and
+`whatsapp-webhook` now requires a verified Meta signature — all three
+deployed and verified live (2026-09-23)**, per
+`SECURITY_AND_PILOT_BLOCKERS.md` and `DEPLOYMENT_RUNBOOK.md` Section C
+rows 11–16. This doesn't change whether a message actually sends, only
+who's now allowed to trigger it.
 
 - **`hello_world` (Meta's own generic default template) — Live and
   verified** (the send/receive mechanism and template), **current token
@@ -335,9 +333,13 @@ note). Proven with a real phone conversation in both directions.
   retryable, an abandoned in-flight claim recovers, and concurrent
   duplicate deliveries can't both update the same shipment. Written,
   committed, and unit-tested (`webhook_idempotency_test.ts`).
-- **Production status:** not deployed — the live webhook still accepts
-  any POST shaped like a WhatsApp delivery with no signature check at
-  all, and still has the old record-existence-only idempotency table.
+- **Production status:** deployed and verified live (2026-09-23). The
+  live webhook now rejects any POST without a valid `X-Hub-Signature-256`
+  before parsing anything, and runs the real processing/completed/
+  failed/gave-up state machine. Confirmed via `DEPLOYMENT_RUNBOOK.md`
+  Section C rows 11–13: a valid signature is accepted and marked
+  `completed`, an invalid one is rejected with zero row created, and a
+  duplicate delivery of an already-completed message is a safe no-op.
   See `SECURITY_AND_PILOT_BLOCKERS.md`.
 
 ### Dashboard views — **Live and verified**
@@ -364,33 +366,25 @@ version of this document's "covers every static and dynamic string"
 claim did not draw this distinction and has been corrected here; it's
 already listed correctly under "Planned" below.
 
-**Authentication — frontend deployed, backend still open.**
+**Authentication — deployed and verified, both frontend and backend.**
 `index.html` and `ruta-dashboard-fixed.html` use a real Supabase Auth
 magic-link sign-in and an `authedFetch()` wrapper on every protected
-call, and **this is already live** — confirmed directly against the
-hosted GitHub Pages URLs, not assumed from the git log: GitHub Pages
-auto-publishes on push to `main`, and the commit carrying this change
-was already pushed. **What is not yet true in production:** none of the
-19 deployed Edge Functions check that session or the
-`pilot_authorized_emails` allowlist yet — the real bearer token the live
-dashboard already sends is currently ignored server-side. See
-`SECURITY_AND_PILOT_BLOCKERS.md` and
-[`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md) for exactly what
-closes this gap and in what order.
+call, live since before this pass. As of 2026-09-23, all 15
+`requireAuthorizedUser`-gated Edge Functions also check that real
+session and the `pilot_authorized_emails` allowlist server-side — the
+bearer token the dashboard sends is no longer a no-op. Verified live
+via `DEPLOYMENT_RUNBOOK.md` Section C (rows 2, 5, 6, 7, 8) and a
+2026-09-24 post-deployment audit; see `SECURITY_AND_PILOT_BLOCKERS.md`
+for the full evidence.
 
 ### Hosting — **Live and verified**
 
 Served via GitHub Pages on the public repository; confirmed live today (the
 hosted root and the dashboard file both return a normal successful
-response). **Correction to earlier framing:** the sign-in in front of it
-is a real Supabase Auth magic-link login, not a non-secure client-side
-gate — that description was accurate for the *old* shared-password
-mechanism this replaced, and is now stale. What's still open is the
-*backend*, not the frontend: none of the 19 deployed Edge Functions
-check the real session/allowlist this login already produces — see
-"Authentication — frontend deployed, backend still open" above and
-`SECURITY_AND_PILOT_BLOCKERS.md` for exactly what that does and doesn't
-protect against today.
+response). The sign-in in front of it is a real Supabase Auth
+magic-link login — see "Authentication — deployed and verified, both
+frontend and backend" above and `SECURITY_AND_PILOT_BLOCKERS.md` for
+the full picture of what it now protects, confirmed live.
 
 ### Visual design — **Live and verified**
 

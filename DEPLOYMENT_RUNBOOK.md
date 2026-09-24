@@ -380,7 +380,14 @@ Fill in after Section C passes. No secret value of any kind belongs in
 this record — only names, paths, hashes, dates, and pass/fail outcomes.
 
 ```text
-Deployment date:            2026-09-24
+Deployment date:            2026-09-23 (corrected 2026-09-24 during a
+  post-deployment audit; the remote migration timestamps below place
+  the actual apply moment at ~18:56-19:01 UTC on the 23rd, which is
+  ~12:56-13:01 PM Honduras time (UTC-6, no DST) -- same calendar day.
+  The original "09-24" was when this record was drafted, not when the
+  migrations actually ran. Kept in this same field per the standing
+  rule that no secret belongs here, but a correction like this is
+  fair game.)
 Release commit hash:        b5ddf3d
 Migrations applied:
   [x] 20260922000000_security_hardening.sql   (registered as 20260923185628_security_hardening)
@@ -418,7 +425,7 @@ Deployed-only functions (not redeployed, action taken):
 Dashboard version/commit already live:  ae541c8 (unchanged; confirmed
   byte-identical to the repo before this release, no frontend redeploy
   was part of this pass)
-Tester name/email:          victoryacaman@gmail.com (owner)
+Tester name/email:          <owner email> (owner)
 Test outcome (Section C, # 1-21):  21 / 21 run and passed; 0 deferred.
   Passed: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
   (data-level), 18, 19, 20, 21.
@@ -433,8 +440,58 @@ Security note: the Meta app secret was rotated mid-verification after
   test (see BUILD_LOG.md's 2026-09-24 entry for the full incident
   record). The new secret was confirmed working before this record was
   finalized. No other credential was affected.
-Remaining exceptions or deferred items: none. All 21 rows run and
-  passed.
+Post-deployment security audit (read-only, 2026-09-23):
+  Edge Function inventory:  18 ACTIVE (17 local + storm-signal,
+    matches expected state after excel-debug's deletion)
+  Gated-function count reconciled:  15, confirmed by line-numbered
+    grep of every real requireAuthorizedUser(req) call site (a 16th
+    "match" was _shared/auth.ts's own header comment, not a real
+    call). Row 8's original "15" was correct; the "16" figure used
+    briefly elsewhere this project was the error and has been
+    corrected in BUILD_LOG.md.
+  Migration history:  supabase CLI not installed in this environment;
+    mcp__Supabase__list_migrations used as the read-only equivalent.
+    Remote registered timestamps differ from local filenames'
+    authored timestamps -- already explained above as
+    apply_migration's normal apply-time registration behavior, not a
+    defect, no repair run or needed.
+  Security Advisor:  11 INFO ("RLS Enabled No Policy" -- every
+    hardened table has RLS on but zero policies) + 1 WARN ("Leaked
+    Password Protection Disabled", an Auth-level toggle unrelated to
+    these tables).
+  RLS + grants on pilot_authorized_emails / oauth_states /
+    whatsapp_webhook_events / whatsapp_send_log:  RLS enabled on all
+    4, pg_policies returns zero rows for all 4 (matches the advisor).
+    anon/authenticated hold broad table-level grants on all 4, but
+    pg_roles confirms neither has rolbypassrls or rolsuper -- with
+    RLS on and zero policies, Postgres denies all row access by
+    default regardless of those grants. Not exploitable today, but
+    fragile: any future policy added without care would immediately
+    activate the pre-existing broad grants. Tracked below as an open
+    item, not marked clean.
+  Function privileges (claim_whatsapp_send_slot, claim_webhook_event,
+    complete_webhook_event, fail_webhook_event):  all 4 SECURITY
+    DEFINER with a fixed search_path=public; anon/authenticated/
+    public confirmed unable to execute, only service_role can. Clean.
+  Row 17, verified live for the first time (previously data-level
+    only):  a real authenticated call to decisions-list with default
+    params returned scope="pilot", demoDataIncluded=false, and the
+    only distinct environment value across the whole history array
+    is "pilot". Genuine live pass -- 21/21 holds under this stricter
+    bar too.
+Remaining exceptions or deferred items:
+  - RLS-enabled-with-zero-policies on 11 tables (INFO, not currently
+    exploitable given anon/authenticated lack rolbypassrls -- see
+    above): no default-deny policy has ever been written explicitly;
+    relying on Postgres's implicit deny-with-no-policy behavior
+    rather than a stated policy is fragile against a future mistake.
+    Not blocking; worth a real policy pass before scaling past the
+    pilot.
+  - Auth leaked-password-protection is disabled (WARN, Auth-level,
+    off by default, unrelated to the tables/functions above): a
+    one-click toggle in Supabase Auth settings, not yet turned on.
+  All 21 Section C smoke-test rows themselves: run and passed, no
+  exceptions.
 ```
 
 ## F. Staging-only reliability tests

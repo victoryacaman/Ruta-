@@ -122,11 +122,12 @@ connector works in demo mode without any of this):
    (non-negotiable before connecting real ERP or carrier credentials —
    still open, not started), and real backend-enforced authentication
    (even single-tenant) before any real ERP data flows through this —
-   implemented and tested in the repository as of 2026-09-23, but not
-   yet deployed (the dashboard's own sign-in is already live; the
-   backend functions are not); see `SECURITY_AND_PILOT_BLOCKERS.md` for
-   the specific list and [`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md)
-   for the deployment plan itself.
+   implemented, tested, **deployed, and verified live** as of
+   2026-09-23 (both the dashboard's sign-in and all 15 gated backend
+   functions); see `SECURITY_AND_PILOT_BLOCKERS.md` for the specific
+   list and [`DEPLOYMENT_RUNBOOK.md`](./DEPLOYMENT_RUNBOOK.md) for how
+   it was verified. The production domain remains the one real
+   blocker left in this item.
 8. Driver/provider WhatsApp tracking agent, an extension beyond the
    original 7-step scope — done, proven end-to-end in both directions.
 
