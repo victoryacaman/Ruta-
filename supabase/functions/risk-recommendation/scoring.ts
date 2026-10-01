@@ -141,6 +141,9 @@ export function computeSkuRisk(
 }
 
 export interface RecommendationAggregate {
+  totalSkuCount: number;
+  assessedSkuCount: number;
+  unassessedSkus: { sku: string; name: string; missingFields: string[] }[];
   applicable: boolean;
   atRiskSkus: AtRiskSku[];
   totalExposureLps: number | null;
@@ -151,17 +154,28 @@ export interface RecommendationAggregate {
   anyUnverifiedTransfers: boolean;
   roiMultiple: number | null;
   roiUnavailableReason: string | null;
-  avgCoveragePct: number;
+  avgCoveragePct: number | null;
   topWarehouse: { location: string; units: number } | null;
 }
 
 export function computeAtRiskSkus(
   items: SkuInventoryInput[],
-  expectedDelayDays: number,
+  expectedDelayDays: number | null,
   transferCostPerUnitLps: number,
 ): RecommendationAggregate {
+  const unassessedSkus = items.flatMap((item) => {
+    const missingFields = [];
+    if (item.onHandUnits == null) missingFields.push("onHandUnits");
+    if (item.avgDailyUnitsSold == null) missingFields.push("avgDailyUnitsSold");
+    return missingFields.length ? [{ sku: item.sku, name: item.name, missingFields }] : [];
+  });
+  const assessmentCounts = {
+    totalSkuCount: items.length,
+    assessedSkuCount: items.length - unassessedSkus.length,
+    unassessedSkus,
+  };
   const atRiskSkus: AtRiskSku[] = [];
-  if (expectedDelayDays > 0) {
+  if (expectedDelayDays != null && expectedDelayDays > 0) {
     for (const item of items) {
       const risk = computeSkuRisk(item, expectedDelayDays);
       if (!risk) continue;
@@ -173,11 +187,13 @@ export function computeAtRiskSkus(
 
   if (!atRiskSkus.length) {
     return {
+      ...assessmentCounts,
       applicable: false, atRiskSkus: [],
       totalExposureLps: null, exposureIncomplete: false,
       totalTransferCostLps: 0, totalTransferUnits: 0, totalVerifiedTransferUnits: 0,
       anyUnverifiedTransfers: false, roiMultiple: null, roiUnavailableReason: null,
-      avgCoveragePct: 100, topWarehouse: null,
+      avgCoveragePct: expectedDelayDays != null && items.length > 0 && !unassessedSkus.length ? 100 : null,
+      topWarehouse: null,
     };
   }
 
@@ -194,8 +210,8 @@ export function computeAtRiskSkus(
 
   let roiMultiple: number | null = null;
   let roiUnavailableReason: string | null = null;
-  if (exposureIncomplete || totalExposureLps == null) {
-    roiUnavailableReason = "Sales exposure is unknown for at least one at-risk SKU (missing unit price) -- a total ROI multiple would be misleading.";
+  if (unassessedSkus.length || exposureIncomplete || totalExposureLps == null) {
+    roiUnavailableReason = "Inventory assessment or sales exposure is incomplete -- a total ROI multiple would be misleading.";
   } else if (totalTransferCostLps <= 0) {
     roiUnavailableReason = "No transfer cost to compare exposure against.";
   } else {
@@ -213,13 +229,14 @@ export function computeAtRiskSkus(
   const topWarehouseEntry = Object.entries(warehouseTotals).sort((a, b) => b[1] - a[1])[0];
 
   return {
+    ...assessmentCounts,
     applicable: true,
     atRiskSkus,
     totalExposureLps, exposureIncomplete,
     totalTransferCostLps, totalTransferUnits, totalVerifiedTransferUnits,
     anyUnverifiedTransfers,
     roiMultiple, roiUnavailableReason,
-    avgCoveragePct,
+    avgCoveragePct: unassessedSkus.length || exposureIncomplete ? null : avgCoveragePct,
     topWarehouse: topWarehouseEntry ? { location: topWarehouseEntry[0], units: topWarehouseEntry[1] } : null,
   };
 }

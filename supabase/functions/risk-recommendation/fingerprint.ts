@@ -9,14 +9,29 @@ export interface FingerprintSkuInput {
   sku: string;
   unitsShort: number;
   transferUnits: number;
+  salesExposureLps?: number | null;
 }
 
 export interface FingerprintInput {
   locationName: string;
   severity: string;
-  expectedDelayDays: number;
+  expectedDelayDays: number | null;
   erpProvider: string;
+  environment?: string;
+  computationSource?: string;
+  testRunId?: string | null;
+  currencyCode?: string | null;
+  financialsAvailable?: boolean;
+  inventoryScope?: string | null;
+  transferCostPerUnitLps?: number;
   atRiskSkus: FingerprintSkuInput[];
+  assessment?: {
+    status: string;
+    reasons: string[];
+    assessedSkuCount: number;
+    rejectedSkuCount: number;
+    unassessedSkus: { sku: string; missingFields: string[] }[];
+  };
 }
 
 export async function computeSignalFingerprint(input: FingerprintInput): Promise<string> {
@@ -25,8 +40,24 @@ export async function computeSignalFingerprint(input: FingerprintInput): Promise
     severity: input.severity,
     expectedDelayDays: input.expectedDelayDays,
     erpProvider: input.erpProvider,
+    environment: input.environment,
+    computationSource: input.computationSource,
+    testRunId: input.testRunId,
+    currencyCode: input.currencyCode,
+    financialsAvailable: input.financialsAvailable,
+    inventoryScope: input.inventoryScope,
+    transferCostPerUnitLps: input.transferCostPerUnitLps,
+    assessment: input.assessment ? {
+      status: input.assessment.status,
+      reasons: [...input.assessment.reasons].sort(),
+      assessedSkuCount: input.assessment.assessedSkuCount,
+      rejectedSkuCount: input.assessment.rejectedSkuCount,
+      unassessedSkus: input.assessment.unassessedSkus.map((s) => ({
+        sku: s.sku, missingFields: [...s.missingFields].sort(),
+      })).sort((a, b) => a.sku.localeCompare(b.sku)),
+    } : undefined,
     atRiskSkus: [...input.atRiskSkus]
-      .map((s) => ({ sku: s.sku, unitsShort: s.unitsShort, transferUnits: s.transferUnits }))
+      .map((s) => ({ sku: s.sku, unitsShort: s.unitsShort, transferUnits: s.transferUnits, salesExposureLps: s.salesExposureLps }))
       .sort((a, b) => a.sku.localeCompare(b.sku)),
   });
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));

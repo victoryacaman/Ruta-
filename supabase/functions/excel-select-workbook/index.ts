@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { corsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { selectionContext } from "../_shared/inventoryContext.ts";
 
 // Saves the workbook/table an authorized user picked in the Add tools
 // picker. Re-verifies the table actually exists via Graph before writing,
@@ -10,10 +11,16 @@ import { corsHeaders, handlePreflight } from "../_shared/cors.ts";
 // SECURITY HARDENING (2026-09-22): now gated -- this let anyone re-point
 // the connector at a different file inside the same authorized OneDrive
 // account before.
+//
+// WORKBOOK COMPATIBILITY (2026-09-28/29): the picker now also submits a
+// declared inventory_context (data environment demo/pilot/unknown,
+// currency HNL/USD, whether units were confirmed) via selectionContext()
+// -- see _shared/inventoryContext.ts. This binds the trust declaration to
+// the exact workbook+table id, not just a connector/filename guess.
 
 const MS_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 
-async function getAccessToken(supabase: ReturnType<typeof createClient>): Promise<string> {
+async function getAccessToken(supabase: SupabaseClient<any>): Promise<string> {
   const { data: oauth, error } = await supabase
     .from("excel_oauth")
     .select("id, client_id, client_secret, access_token, refresh_token, token_expires_at")
@@ -72,6 +79,12 @@ Deno.serve(async (req: Request) => {
         status: 400, headers: corsHeaders(req),
       });
     }
+    let context;
+    try {
+      context = selectionContext(body, fileId, tableName);
+    } catch (_err) {
+      return new Response(JSON.stringify({ ok: false, error: "Invalid currency, data environment, or units confirmation" }), { status: 400, headers: corsHeaders(req) });
+    }
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -107,6 +120,7 @@ Deno.serve(async (req: Request) => {
       .from("erp_config")
       .update({
         provider: "excel",
+        inventory_context: context,
         excel_workbook_id: fileId,
         excel_workbook_path: fileName ? "/" + fileName : null,
         excel_table_name: tableName,

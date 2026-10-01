@@ -22,6 +22,13 @@ import { computeDecisionMetrics, type EventSummary, type SnapshotSummary } from 
 // is the count of DISTINCT applicable recommendation situations (after
 // risk-recommendation's dedup -- see fingerprint.ts), not raw page-load
 // repeats of the same undecided one.
+//
+// WORKBOOK COMPATIBILITY (2026-09-28/29): legacy snapshots recorded
+// before the currency/units-confirmation system existed have no verified
+// price currency -- their monetary fields are no longer retroactively
+// labeled HNL just because the column name says `_lps`. Only a snapshot
+// whose own full_response.currencyContext confirms financialsAvailable
+// and currencyCode==='HNL' shows its exposure/transfer/ROI figures here.
 
 const HISTORY_LIMIT = 50;
 
@@ -42,7 +49,7 @@ Deno.serve(async (req: Request) => {
 
     let query = supabase
       .from("risk_snapshots")
-      .select("id, computed_at, severity, erp_provider, recommendation_applicable, total_exposure_lps, total_transfer_cost_lps, roi_multiple, sku_count, environment, computation_source, computation_count")
+      .select("id, computed_at, severity, erp_provider, recommendation_applicable, total_exposure_lps, total_transfer_cost_lps, roi_multiple, sku_count, environment, computation_source, computation_count, full_response")
       .neq("computation_source", "test") // never counts anywhere, regardless of scope
       .order("computed_at", { ascending: false })
       .limit(HISTORY_LIMIT);
@@ -69,6 +76,10 @@ Deno.serve(async (req: Request) => {
     }
 
     const history = (snapshots ?? []).map((s) => {
+      // Legacy rows have no verified price currency. Do not retrospectively
+      // label their historical amounts as HNL just because columns say _lps.
+      const currency = s.full_response?.currencyContext;
+      const financialsConfirmed = currency?.financialsAvailable === true && currency?.currencyCode === "HNL";
       const latest = latestEventBySnapshot.get(s.id);
       let status: string;
       if (!s.recommendation_applicable) status = "not_applicable";
@@ -81,13 +92,15 @@ Deno.serve(async (req: Request) => {
         severity: s.severity,
         erpProvider: s.erp_provider,
         recommendationApplicable: s.recommendation_applicable,
-        totalExposureLps: s.total_exposure_lps,
-        totalTransferCostLps: s.total_transfer_cost_lps,
-        roiMultiple: s.roi_multiple,
+        totalExposureLps: financialsConfirmed ? s.total_exposure_lps : null,
+        totalTransferCostLps: financialsConfirmed ? s.total_transfer_cost_lps : null,
+        roiMultiple: financialsConfirmed ? s.roi_multiple : null,
+        currencyCode: currency?.currencyCode ?? null,
         skuCount: s.sku_count,
         environment: s.environment,
         computationSource: s.computation_source,
         computationCount: s.computation_count,
+        assessmentStatus: s.full_response?.assessment?.status ?? "unavailable",
         status,
         decidedAt: latest?.created_at ?? null,
       };

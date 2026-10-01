@@ -1,8 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { corsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { validateAndNormalizeAll, type RawSkuInput } from "./validation.ts";
+import { mapExcelRows, resolveColumns, validateMoneyHeaders } from "./excelMapping.ts";
+import { inventoryContext, inventoryScope } from "../_shared/inventoryContext.ts";
 
 // Read-only ERP connector (build order step 3). No write capability
 // exists in this function at all. Reads erp_config (RLS locked to
@@ -27,6 +29,14 @@ import { validateAndNormalizeAll, type RawSkuInput } from "./validation.ts";
 // place that decides null vs. a real number -- and also rejects
 // malformed SKUs and flags negative/non-finite values rather than
 // trusting them.
+//
+// WORKBOOK COMPATIBILITY (2026-09-28/29): excelMapping.ts/money.ts add
+// bilingual (Spanish/English) header aliases and tolerant HNL/USD
+// currency parsing, plus an inventory_context (environment/currency/
+// unitsConfirmed) declaration bound to the exact connected workbook+table
+// -- see _shared/inventoryContext.ts. None of this fabricates data a
+// real customer's sheet doesn't have; it only widens which real header
+// text is recognized and which money formats parse.
 
 interface ErpConfig {
   provider: "demo" | "odoo" | "sap_b1" | "excel" | "zafracloud";
@@ -40,6 +50,7 @@ interface ErpConfig {
   excel_workbook_path: string | null;
   excel_table_name: string | null;
   api_token: string | null;
+  inventory_context?: unknown;
 }
 
 function demoAdapter(): RawSkuInput[] {
@@ -173,41 +184,7 @@ function encodeGraphPath(path: string): string {
   return path.split("/").map((seg) => (seg ? encodeURIComponent(seg) : "")).join("/");
 }
 
-function normalizeHeader(s: string): string {
-  return String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-const HEADER_ALIASES: Record<string, string[]> = {
-  sku: ["sku", "sku code", "item code", "product code", "code"],
-  name: ["name", "product name", "item name", "description"],
-  onHandUnits: ["onhandunits", "on hand units", "quantity on hand", "qty on hand", "on hand", "quantity", "qty", "stock"],
-  reorderPoint: ["reorderpoint", "reorder point", "reorder level", "reorder qty", "min stock", "minimum stock"],
-  avgDailyUnitsSold: ["avgdailyunitssold", "avg daily units sold", "average daily sales", "avg daily sales", "daily sales"],
-  unitCost: ["unitcost", "unit cost", "unit cost (usd)", "cost", "cost per unit"],
-  unitPrice: ["unitprice", "unit price", "unit price (usd)", "selling price", "price"],
-  altWarehouseLocation: ["altwarehouselocation", "alt warehouse location", "alternate warehouse location", "alternate warehouse", "backup warehouse"],
-  altWarehouseUnits: ["altwarehouseunits", "alt warehouse units", "alternate warehouse units", "backup warehouse units"],
-  // Not part of the original documented template -- recognized the same
-  // way as every other column (by header name, honestly absent if not
-  // found) so a customer whose sheet DOES track the alternate
-  // warehouse's own reorder point/sales rate can get transfer
-  // verification (see risk-recommendation/scoring.ts) without a code
-  // change. Nothing invents this data if the column isn't there.
-  altWarehouseReorderPoint: ["altwarehousereorderpoint", "alt warehouse reorder point", "alternate warehouse reorder point", "source warehouse reorder point"],
-  altWarehouseAvgDailyUnitsSold: ["altwarehouseavgdailyunitssold", "alt warehouse avg daily sales", "alternate warehouse daily sales", "source warehouse daily sales"],
-};
-
-function resolveColumns(headers: string[]): Record<string, number> {
-  const normalized = headers.map(normalizeHeader);
-  const resolved: Record<string, number> = {};
-  for (const field of Object.keys(HEADER_ALIASES)) {
-    const aliases = HEADER_ALIASES[field].map(normalizeHeader);
-    resolved[field] = normalized.findIndex((h) => aliases.includes(h));
-  }
-  return resolved;
-}
-
-async function excelAdapter(config: ErpConfig, supabase: ReturnType<typeof createClient>): Promise<RawSkuInput[]> {
+async function excelAdapter(config: ErpConfig, supabase: SupabaseClient<any>): Promise<RawSkuInput[]> {
   const { data: oauth, error: oauthError } = await supabase
     .from("excel_oauth")
     .select("id, client_id, client_secret, access_token, refresh_token, token_expires_at")
@@ -267,9 +244,8 @@ async function excelAdapter(config: ErpConfig, supabase: ReturnType<typeof creat
   const headerJson = await headerRes.json();
   const headers: string[] = (headerJson.values?.[0] ?? []).map((h: any) => String(h ?? ""));
   const columns = resolveColumns(headers);
-  if (columns.sku < 0) {
-    throw new Error(`Could not find a SKU column in this table's headers (saw: ${headers.join(", ") || "(no headers)"})`);
-  }
+  const context = inventoryContext(config);
+  validateMoneyHeaders(headers, columns, context.currencyCode);
 
   const rowsRes = await fetch(`${tableUrl}/rows`, { headers: authHeaders });
   if (!rowsRes.ok) {
@@ -278,45 +254,7 @@ async function excelAdapter(config: ErpConfig, supabase: ReturnType<typeof creat
   }
   const rowsJson = await rowsRes.json();
 
-  // DATA INTEGRITY (2026-09-22): a cell that's blank or has no matching
-  // column used to become `Number(undefined) || 0` -- a real number
-  // masquerading as a known zero. numOrUndef leaves it genuinely absent
-  // instead, so validation.ts (not this adapter) is what decides null
-  // vs. a real value.
-  const numOrUndef = (v: unknown): number | undefined =>
-    v === "" || v == null ? undefined : Number(v);
-
-  const bySku = new Map<string, RawSkuInput>();
-  for (const row of rowsJson.value ?? []) {
-    const cells: any[] = row.values?.[0] ?? [];
-    const get = (field: string) => (columns[field] >= 0 ? cells[columns[field]] : undefined);
-
-    const sku = get("sku");
-    if (!sku) continue;
-    const skuStr = String(sku);
-    if (!bySku.has(skuStr)) {
-      bySku.set(skuStr, {
-        sku: skuStr,
-        name: String(get("name") ?? skuStr),
-        onHandUnits: numOrUndef(get("onHandUnits")),
-        reorderPoint: numOrUndef(get("reorderPoint")),
-        avgDailyUnitsSold: numOrUndef(get("avgDailyUnitsSold")),
-        unitCost: numOrUndef(get("unitCost")),
-        unitPrice: numOrUndef(get("unitPrice")),
-        alternateWarehouseUnits: [],
-      });
-    }
-    const altLoc = get("altWarehouseLocation");
-    if (altLoc) {
-      bySku.get(skuStr)!.alternateWarehouseUnits!.push({
-        location: String(altLoc),
-        units: numOrUndef(get("altWarehouseUnits")) ?? 0,
-        sourceReorderPoint: numOrUndef(get("altWarehouseReorderPoint")) ?? null,
-        sourceAvgDailyUnitsSold: numOrUndef(get("altWarehouseAvgDailyUnitsSold")) ?? null,
-      });
-    }
-  }
-  return Array.from(bySku.values());
+  return mapExcelRows(columns, rowsJson.value ?? [], context.currencyCode);
 }
 
 async function zafraCloudFetch(config: ErpConfig, path: string, retriesLeft = 3): Promise<any> {
@@ -473,7 +411,8 @@ Deno.serve(async (req: Request) => {
     const { items, rejectedCount } = validateAndNormalizeAll(rawItems);
 
     return new Response(
-      JSON.stringify({ ok: true, provider, fetchedAt: new Date().toISOString(), items, rejectedCount }),
+      JSON.stringify({ ok: true, provider, fetchedAt: new Date().toISOString(), items, rejectedCount,
+        inventoryContext: inventoryContext(config ?? { provider: "demo" }), inventoryScope: await inventoryScope(config) }),
       { headers: corsHeaders(req) },
     );
   } catch (err) {

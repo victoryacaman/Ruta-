@@ -2,8 +2,12 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireAuthorizedUser } from "../_shared/auth.ts";
 import { corsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { functionUrl } from "../_shared/functionUrl.ts";
+import { validateWeatherDaily } from "../_shared/feedValidation.ts";
 import { computeAtRiskSkus } from "./scoring.ts";
+import { assessRiskInputs, assessmentRecommendation } from "./assessment.ts";
 import { computeSignalFingerprint } from "./fingerprint.ts";
+import { riskInventoryContext, currencyAssessment, withholdFinancials } from "./currency.ts";
 
 // Build order step 4: rule-based scoring engine. Combines step 2's live
 // weather/storm signal with step 3's ERP inventory data into a real
@@ -27,15 +31,23 @@ import { computeSignalFingerprint } from "./fingerprint.ts";
 // pure, independently unit-tested functions -- see
 // tests/unit/scoring_test.ts. This file just wires that output into the
 // response and, below, into a deduplicated risk_snapshots row (Part C).
+//
+// WORKBOOK COMPATIBILITY (2026-09-28/29): inventoryContext (environment/
+// currency/unitsConfirmed, bound to the exact connected workbook+table --
+// see _shared/inventoryContext.ts) now also gates whether financial
+// figures (exposure, transfer cost, ROI) are shown at all -- see
+// currency.ts. Quantity-only figures (units short, days of safety stock)
+// still render even when currency/units aren't confirmed; money never
+// does, and is never silently converted between HNL/USD. assessment.ts
+// also now reports *why* an assessment is partial/unavailable
+// (unassessed SKUs, rejected rows, missing prices) instead of just a
+// recommendation/no-recommendation boolean.
 
 const DEFAULT_LOCATION = { locationName: "Puerto Cortés", lat: 15.8267, lon: -87.9536, relevantRadiusKm: 2500, transferCostPerUnitLps: 45 };
 const SEVERE_WEATHER_CODES = [65, 82, 95, 96, 99];
 const HEAVY_RAIN_MM = 20;
 const HIGH_WIND_KMH = 40;
-const EXPECTED_DELAY_DAYS: Record<string, number> = { unknown: 0, low: 0, medium: 5, high: 10 };
-
-const STORM_SIGNAL_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/storm-signal";
-const ERP_INVENTORY_URL = "https://gcrnarueiybbavmkzhcv.supabase.co/functions/v1/erp-inventory";
+const EXPECTED_DELAY_DAYS: Record<string, number | null> = { unknown: null, low: 0, medium: 5, high: 10 };
 
 function supabaseClient() {
   return createClient(
@@ -58,9 +70,10 @@ async function loadLocationConfig() {
       locationName: data.location_name, lat: data.lat, lon: data.lon,
       relevantRadiusKm: data.relevant_radius_km,
       transferCostPerUnitLps: Number(data.transfer_cost_per_unit_lps),
+      locationConfigAvailable: true,
     };
   } catch (_err) {
-    return DEFAULT_LOCATION;
+    return { ...DEFAULT_LOCATION, locationConfigAvailable: false };
   }
 }
 
@@ -70,7 +83,7 @@ async function fetchWeatherOutlook(lat: number, lon: number) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Open-Meteo returned ${res.status}`);
   const data = await res.json();
-  const daily = data.daily ?? {};
+  const daily = validateWeatherDaily(data);
   const flaggedDays: any[] = [];
   const allDays: any[] = [];
   for (let i = 0; i < (daily.time || []).length; i++) {
@@ -116,17 +129,21 @@ Deno.serve(async (req: Request) => {
     const computationSource = (["page_load", "manual_refresh", "scheduled", "test"].includes(requestedSource ?? "")
       ? requestedSource
       : "page_load") as "page_load" | "manual_refresh" | "scheduled" | "test";
+    const requestedRunId = url.searchParams.get("testRunId");
+    const testRunId = computationSource === "test" && /^[a-z0-9-]{1,80}$/.test(requestedRunId ?? "") ? requestedRunId : null;
 
     const location = await loadLocationConfig();
     // Forward the caller's own bearer token, not a broad internal
     // credential -- erp-inventory independently re-verifies this same
     // real user (see the INTERNAL AUTH REVIEW note above).
     const callerAuthHeader = req.headers.get("authorization") ?? "";
+    const stormSignalUrl = functionUrl("storm-signal");
+    const erpInventoryUrl = functionUrl("erp-inventory");
 
     const [weatherResult, stormsResult, erpResult] = await Promise.allSettled([
       fetchWeatherOutlook(location.lat, location.lon),
-      fetch(STORM_SIGNAL_URL).then((r) => r.json()),
-      fetch(ERP_INVENTORY_URL, { headers: { Authorization: callerAuthHeader } }).then((r) => r.json()),
+      fetch(stormSignalUrl).then((r) => { if (!r.ok) throw new Error(`storm-signal returned ${r.status}`); return r.json(); }),
+      fetch(erpInventoryUrl, { headers: { Authorization: callerAuthHeader } }).then((r) => { if (!r.ok) throw new Error(`erp-inventory returned ${r.status}`); return r.json(); }),
     ]);
 
     const weatherFailed = weatherResult.status !== "fulfilled";
@@ -135,41 +152,43 @@ Deno.serve(async (req: Request) => {
       : { flaggedDays: [], allDays: [], daysChecked: 0, error: String((weatherResult as PromiseRejectedResult).reason) };
 
     const stormsRaw = stormsResult.status === "fulfilled" ? stormsResult.value : null;
-    const stormsFailed = !(stormsRaw?.ok);
-    const storms = stormsRaw?.ok
+    const stormsFailed = !(stormsRaw?.ok && Array.isArray(stormsRaw.relevantStorms) &&
+      stormsRaw.locationConfigAvailable !== false && stormsRaw.locationName === location.locationName &&
+      stormsRaw.relevantRadiusKm === location.relevantRadiusKm);
+    const storms = !stormsFailed
       ? stormsRaw
       : { relevantStorms: [], relevantRadiusKm: location.relevantRadiusKm, error: stormsRaw?.error ?? String((stormsResult as PromiseRejectedResult).reason ?? "storm-signal unavailable") };
 
     const erpRaw = erpResult.status === "fulfilled" ? erpResult.value : null;
-    const erp = erpRaw?.ok
+    const erpAvailable = Boolean(erpRaw?.ok && Array.isArray(erpRaw.items));
+    const erp = erpAvailable
       ? erpRaw
       : { items: [], provider: "unknown", error: erpRaw?.error ?? String((erpResult as PromiseRejectedResult).reason ?? "erp-inventory unavailable") };
 
-    const { severity, reasons } = computeSeverity(
+    const signal = computeSeverity(
       weather.flaggedDays, storms.relevantStorms ?? [], weatherFailed, stormsFailed,
       location.locationName, storms.relevantRadiusKm ?? location.relevantRadiusKm,
     );
+    const { severity, reasons } = location.locationConfigAvailable ? signal : {
+      severity: "unknown", reasons: ["Location settings unavailable — corridor severity cannot be confirmed"],
+    };
     const expectedDelayDays = EXPECTED_DELAY_DAYS[severity];
 
-    const scoring = computeAtRiskSkus(erp.items ?? [], expectedDelayDays, location.transferCostPerUnitLps);
+    const context = riskInventoryContext(erp.inventoryContext);
+    const money = currencyAssessment(context);
+    const scoreItems = context.unitsConfirmed ? erp.items ?? [] : (erp.items ?? []).map((s: any) => ({
+      ...s, onHandUnits: null, avgDailyUnitsSold: null,
+    }));
+    const scoring = withholdFinancials(computeAtRiskSkus(scoreItems, expectedDelayDays, location.transferCostPerUnitLps), money.financialsAvailable);
+    const assessment = assessRiskInputs({
+      severity, weatherFailed, stormsFailed, erpAvailable,
+      locationConfigAvailable: location.locationConfigAvailable,
+      rejectedSkuCount: erp.rejectedCount ?? 0,
+      scoring,
+      contextReasons: money.reasons,
+    });
 
-    const recommendation = scoring.applicable
-      ? {
-        applicable: true,
-        atRiskSkus: scoring.atRiskSkus,
-        totalExposureLps: scoring.totalExposureLps,
-        exposureIncomplete: scoring.exposureIncomplete,
-        totalTransferCostLps: scoring.totalTransferCostLps,
-        totalTransferUnits: scoring.totalTransferUnits,
-        totalVerifiedTransferUnits: scoring.totalVerifiedTransferUnits,
-        anyUnverifiedTransfers: scoring.anyUnverifiedTransfers,
-        roiMultiple: scoring.roiMultiple,
-        roiUnavailableReason: scoring.roiUnavailableReason,
-        avgCoveragePct: scoring.avgCoveragePct,
-        topWarehouse: scoring.topWarehouse,
-        transferCostAssumptionLpsPerUnit: location.transferCostPerUnitLps,
-      }
-      : { applicable: false };
+    const recommendation = assessmentRecommendation(scoring, assessment.status, location.transferCostPerUnitLps, money.financialsAvailable);
 
     // Part C: classify which "bucket" this computation belongs to, from
     // the actual ERP provider in use -- not asked of the caller, since
@@ -178,8 +197,7 @@ Deno.serve(async (req: Request) => {
     // unreachable, matching the same "say so, don't guess" rule this
     // project applies everywhere else.
     const erpProvider = erp.provider ?? "unknown";
-    const environment: "demo" | "pilot" | "unknown" =
-      erpProvider === "demo" ? "demo" : erpProvider === "unknown" ? "unknown" : "pilot";
+    const environment = context.environment;
 
     const responseBody = {
       ok: true,
@@ -197,9 +215,13 @@ Deno.serve(async (req: Request) => {
       },
       erpProvider,
       erpError: erp.error ?? null,
+      assessment,
       recommendation,
       environment,
       computationSource,
+      testRunId,
+      inventoryContext: context,
+      currencyContext: money,
     };
 
     const signalFingerprint = await computeSignalFingerprint({
@@ -207,7 +229,15 @@ Deno.serve(async (req: Request) => {
       severity,
       expectedDelayDays,
       erpProvider,
-      atRiskSkus: scoring.atRiskSkus.map((s) => ({ sku: s.sku, unitsShort: s.unitsShort, transferUnits: s.transferUnits })),
+      environment,
+      computationSource,
+      testRunId,
+      currencyCode: context.currencyCode,
+      financialsAvailable: money.financialsAvailable,
+      inventoryScope: erp.inventoryScope ?? null,
+      transferCostPerUnitLps: location.transferCostPerUnitLps,
+      assessment,
+      atRiskSkus: scoring.atRiskSkus.map((s) => ({ sku: s.sku, unitsShort: s.unitsShort, transferUnits: s.transferUnits, salesExposureLps: s.salesExposureLps })),
     });
 
     // Dedup: a repeat of the exact same material recommendation within
@@ -217,6 +247,14 @@ Deno.serve(async (req: Request) => {
     // what keeps "recommendations shown" from being inflated by someone
     // just reloading the dashboard.
     const DEDUP_WINDOW_MINUTES = 5;
+    const snapshotMetrics = {
+      recommendation_applicable: recommendation.applicable,
+      total_exposure_lps: recommendation.applicable ? recommendation.totalExposureLps : null,
+      total_transfer_cost_lps: recommendation.applicable ? recommendation.totalTransferCostLps : null,
+      roi_multiple: recommendation.applicable ? recommendation.roiMultiple : null,
+      sku_count: recommendation.applicable ? scoring.atRiskSkus.length : 0,
+      full_response: responseBody,
+    };
     let snapshotId: string | null = null;
     try {
       const supabase = supabaseClient();
@@ -225,6 +263,8 @@ Deno.serve(async (req: Request) => {
         .from("risk_snapshots")
         .select("id, computation_count")
         .eq("signal_fingerprint", signalFingerprint)
+        .eq("environment", environment)
+        .eq("computation_source", computationSource)
         .gte("computed_at", since)
         .order("computed_at", { ascending: false })
         .limit(1)
@@ -234,7 +274,7 @@ Deno.serve(async (req: Request) => {
       if (existing) {
         const { error: updateError } = await supabase
           .from("risk_snapshots")
-          .update({ computation_count: (existing.computation_count ?? 1) + 1, last_computed_at: new Date().toISOString() })
+          .update({ ...snapshotMetrics, computation_count: (existing.computation_count ?? 1) + 1, last_computed_at: new Date().toISOString() })
           .eq("id", existing.id);
         if (updateError) throw updateError;
         snapshotId = existing.id;
@@ -243,12 +283,7 @@ Deno.serve(async (req: Request) => {
           computed_at: responseBody.computedAt,
           severity,
           erp_provider: erpProvider,
-          recommendation_applicable: recommendation.applicable,
-          total_exposure_lps: scoring.totalExposureLps,
-          total_transfer_cost_lps: recommendation.applicable ? scoring.totalTransferCostLps : null,
-          roi_multiple: scoring.roiMultiple,
-          sku_count: recommendation.applicable ? scoring.atRiskSkus.length : 0,
-          full_response: responseBody,
+          ...snapshotMetrics,
           environment,
           computation_source: computationSource,
           signal_fingerprint: signalFingerprint,
