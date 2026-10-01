@@ -1,0 +1,1625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Utopia — Supply resilience intelligence (Staging)</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// SECURITY HARDENING (2026-09-23): real Supabase Auth session, checked
+// against the server-side pilot_authorized_emails allowlist by every
+// protected Edge Function -- this client-side check is a UX convenience
+// (bounce unauthenticated visitors to sign-in fast) not the actual access
+// control. Absolute sign-in URL, not relative -- a relative 'index.html'
+// resolves to whatever file happens to share this file's folder (a real
+// bug found before presenting: emailing/downloading this file into a
+// folder next to an unrelated project's index.html silently redirected
+// there instead). Always land on the real hosted sign-in page.
+var SIGNIN_URL = 'https://victoryacaman.github.io/Ruta-/staging/index.html';
+var SUPABASE_URL = 'https://tldbuhwutvmaruaqeywk.supabase.co';
+var SUPABASE_ANON_KEY = 'sb_publishable__jpgiul6wBnZadiHrFKWpw_vabSuhUn';
+var supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+var nativeFetch = window.fetch.bind(window);
+
+// Hidden until a real session is confirmed, so an unauthenticated visitor
+// never sees even a flash of dashboard content while getSession() (async)
+// resolves.
+document.documentElement.style.visibility = 'hidden';
+
+async function utopiaBootstrapAuth(){
+  var sessionResult = await supabaseClient.auth.getSession();
+  if(sessionResult.error || !sessionResult.data.session){
+    window.location.replace(SIGNIN_URL);
+    return;
+  }
+  document.documentElement.style.visibility = 'visible';
+  utopiaUpdateProfileUI(sessionResult.data.session);
+}
+
+supabaseClient.auth.onAuthStateChange(function(_event, session){
+  // Covers session expiry/refresh-failure while the dashboard is already
+  // open, not just the initial load.
+  if(!session){
+    window.location.replace(SIGNIN_URL);
+  }
+});
+
+function utopiaUpdateProfileUI(session){
+  var email = (session && session.user && session.user.email) || '';
+  function apply(){
+    var nameEl = document.getElementById('profileName');
+    var emailEl = document.getElementById('profileEmail');
+    var avatarEl = document.getElementById('profileAvatar');
+    if(nameEl) nameEl.textContent = email.split('@')[0] || 'Signed in';
+    if(emailEl) emailEl.textContent = email;
+    if(avatarEl) avatarEl.textContent = email.slice(0, 2).toUpperCase() || 'U';
+  }
+  // This script runs in <head>, so getSession() can resolve before the
+  // profile markup in <body> has even been parsed yet -- defer until
+  // it exists instead of silently no-op'ing on a still-null lookup.
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', apply);
+  } else {
+    apply();
+  }
+}
+
+async function utopiaSignOut(){
+  await supabaseClient.auth.signOut();
+  window.location.replace(SIGNIN_URL);
+}
+
+function utopiaShowNotAuthorized(){
+  if(document.getElementById('utopiaNotAuthorizedBanner')) return;
+  var el = document.createElement('div');
+  el.id = 'utopiaNotAuthorizedBanner';
+  el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999;background:#3a1f22;color:#ff8a8a;padding:12px 20px;text-align:center;font-size:12px;font-weight:700';
+  el.innerHTML = 'Your account is not authorized for this Utopia deployment. ' +
+    '<button onclick="utopiaSignOut()" style="margin-left:10px;background:#ff8a8a;color:#1a0f10;border:0;border-radius:6px;padding:4px 10px;cursor:pointer;font-weight:800">Sign out</button>';
+  document.body.appendChild(el);
+}
+
+// Every call to a protected Edge Function goes through this instead of
+// nativeFetch directly: attaches the current session's access_token as a
+// Bearer header, and reacts to the two auth failure modes a protected
+// function can return -- 401 (session invalid/expired -- back to
+// sign-in) and 403 (a real, currently-authenticated user who just isn't
+// on the pilot allowlist -- shown a banner instead of silently failing).
+async function authedFetch(url, options){
+  options = options || {};
+  var sessionResult = await supabaseClient.auth.getSession();
+  var session = sessionResult.data && sessionResult.data.session;
+  if(!session){
+    window.location.replace(SIGNIN_URL);
+    throw new Error('No active session');
+  }
+  var headers = {};
+  for(var k in (options.headers || {})) headers[k] = options.headers[k];
+  headers['Authorization'] = 'Bearer ' + session.access_token;
+  var merged = {};
+  for(var k2 in options) merged[k2] = options[k2];
+  merged.headers = headers;
+  var res = await nativeFetch(url, merged);
+  if(res.status === 401){
+    await supabaseClient.auth.signOut();
+    window.location.replace(SIGNIN_URL);
+    throw new Error('Session expired');
+  }
+  if(res.status === 403){
+    utopiaShowNotAuthorized();
+    throw new Error('Not authorized for this Utopia deployment');
+  }
+  return res;
+}
+
+utopiaBootstrapAuth();
+</script>
+<style>
+/*! tailwindcss v4.2.1 | MIT License | https://tailwindcss.com */
+@layer theme{:root,:host{--font-sans:ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";--font-mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;--spacing:.25rem;--default-font-family:var(--font-sans);--default-mono-font-family:var(--font-mono)}}@layer base{*,:after,:before{box-sizing:border-box;border:0 solid;margin:0;padding:0}::backdrop{box-sizing:border-box;border:0 solid;margin:0;padding:0}::file-selector-button{box-sizing:border-box;border:0 solid;margin:0;padding:0}html,:host{-webkit-text-size-adjust:100%;tab-size:4;line-height:1.5;font-family:var(--default-font-family,ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji");font-feature-settings:var(--default-font-feature-settings,normal);font-variation-settings:var(--default-font-variation-settings,normal);-webkit-tap-highlight-color:transparent}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;-webkit-text-decoration:inherit;-webkit-text-decoration:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,samp,pre{font-family:var(--default-mono-font-family,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);font-feature-settings:var(--default-mono-font-feature-settings,normal);font-variation-settings:var(--default-mono-font-variation-settings,normal);font-size:1em}small{font-size:80%}sub,sup{vertical-align:baseline;font-size:75%;line-height:0;position:relative}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}:-moz-focusring{outline:auto}progress{vertical-align:baseline}summary{display:list-item}ol,ul,menu{list-style:none}img,svg,video,canvas,audio,iframe,embed,object{vertical-align:middle;display:block}img,video{max-width:100%;height:auto}button,input,select,optgroup,textarea{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}::file-selector-button{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}:where(select:is([multiple],[size])) optgroup{font-weight:bolder}:where(select:is([multiple],[size])) optgroup option{padding-inline-start:20px}::file-selector-button{margin-inline-end:4px}::placeholder{opacity:1}@supports (not ((-webkit-appearance:-apple-pay-button))) or (contain-intrinsic-size:1px){::placeholder{color:currentColor}@supports (color:color-mix(in lab, red, red)){::placeholder{color:color-mix(in oklab, currentcolor 50%, transparent)}}}textarea{resize:vertical}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-date-and-time-value{min-height:1lh;text-align:inherit}::-webkit-datetime-edit{display:inline-flex}::-webkit-datetime-edit-fields-wrapper{padding:0}::-webkit-datetime-edit{padding-block:0}::-webkit-datetime-edit-year-field{padding-block:0}::-webkit-datetime-edit-month-field{padding-block:0}::-webkit-datetime-edit-day-field{padding-block:0}::-webkit-datetime-edit-hour-field{padding-block:0}::-webkit-datetime-edit-minute-field{padding-block:0}::-webkit-datetime-edit-second-field{padding-block:0}::-webkit-datetime-edit-millisecond-field{padding-block:0}::-webkit-datetime-edit-meridiem-field{padding-block:0}::-webkit-calendar-picker-indicator{line-height:1}:-moz-ui-invalid{box-shadow:none}button,input:where([type=button],[type=reset],[type=submit]){-webkit-appearance:button;appearance:button}::file-selector-button{-webkit-appearance:button;appearance:button}::-webkit-inner-spin-button{height:auto}::-webkit-outer-spin-button{height:auto}[hidden]:where(:not([hidden=until-found])){display:none!important}}@layer components;@layer utilities{.start{inset-inline-start:var(--spacing)}.container{width:100%}@media (min-width:40rem){.container{max-width:40rem}}@media (min-width:48rem){.container{max-width:48rem}}@media (min-width:64rem){.container{max-width:64rem}}@media (min-width:80rem){.container{max-width:80rem}}@media (min-width:96rem){.container{max-width:96rem}}.table-row{display:table-row}.antialiased{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}}:root{--ink:#e8e8ec;--muted:#8a8a92;--line:#2a2a30;--paper:#0a0a0d;--navy:#1c1c22;--teal:#f2f2f5;--orange:#ff4444;--card:#141417}*{box-sizing:border-box}html{scroll-behavior:smooth}body{background:var(--paper);color:var(--ink);margin:0;font-family:Arial,Helvetica,sans-serif}button,a{font:inherit}button{cursor:pointer}.app-shell{grid-template-columns:232px minmax(0,1fr);min-height:100vh;display:grid}.sidebar{background:var(--navy);color:#eaf2f2;flex-direction:column;height:100vh;padding:28px 18px 22px;display:flex;position:sticky;top:0;border-right:1px solid var(--line)}.brand{letter-spacing:.18em;align-items:center;gap:10px;padding:0 10px 32px;font-size:19px;font-weight:800;display:flex}.brand-mark{color:#0a0a0d;letter-spacing:0;background:#f2f2f5;border-radius:9px;place-items:center;width:32px;height:32px;font-size:15px;display:grid}.nav{gap:5px;display:grid}.nav-item{color:#9a9aa2;text-align:left;background:0 0;border:0;border-radius:9px;align-items:center;gap:12px;width:100%;min-height:44px;padding:0 13px;font-size:14px;text-decoration:none;transition:all .2s;display:flex;position:relative}.nav-item:hover{color:#fff;background:#ffffff0f}.nav-item.active{color:#fff;background:#ffffff1a}.nav-item.active:before{content:"";background:#e8e8ec;border-radius:0 3px 3px 0;width:3px;height:25px;position:absolute;left:-18px}.icon{text-align:center;width:19px;font-size:18px}.nav-badge{color:#fff;text-align:center;background:#ff4444;border-radius:10px;min-width:21px;margin-left:auto;padding:3px 6px;font-size:10px;font-weight:700}.sidebar-bottom{gap:4px;margin-top:auto;display:grid}.add-tools-nav{color:#d4d4d9;background:#ffffff14;border:1px solid #ffffff29;margin-bottom:5px}.profile{border-top:1px solid #ffffff1f;align-items:center;gap:10px;margin-top:16px;padding:17px 10px 0;display:flex}.avatar{color:#e8e8ec;background:#3a3a40;border-radius:50%;place-items:center;width:36px;height:36px;font-size:12px;font-weight:800;display:grid}.profile strong,.profile small{display:block}.profile strong{font-size:12px}.profile small{color:#8a8a92;margin-top:3px;font-size:10px}.main{width:100%;min-width:0;max-width:1500px;margin:0 auto;padding:30px 40px 46px}.topbar{justify-content:space-between;align-items:center;margin-bottom:27px;display:flex}.eyebrow{color:#8a8a92;letter-spacing:.13em;margin:0 0 6px;font-size:10px;font-weight:800}h1{letter-spacing:-.025em;margin:0;font-family:Georgia,Times New Roman,serif;font-size:29px;font-weight:500}.top-actions{align-items:center;gap:13px;display:flex}.sync{border:1px solid var(--line);background:var(--card);border-radius:9px;grid-template-columns:12px auto;column-gap:7px;padding:9px 15px;font-size:11px;font-weight:700;display:grid;position:relative}.sync small{color:#8a8a92;grid-column:2;font-weight:400}.pulse{background:#e8e8ec;border-radius:50%;width:8px;height:8px;margin-top:2px;box-shadow:0 0 0 3px #ffffff1f}.icon-button{border:1px solid var(--line);color:#c9c9d1;background:var(--card);border-radius:9px;width:42px;height:42px;font-size:20px;position:relative}.notification-dot{background:var(--orange);border:2px solid var(--card);border-radius:50%;width:7px;height:7px;position:absolute;top:8px;right:9px}.risk-brief{border:1px solid #3a2226;border-left:4px solid var(--orange);background:#181113;border-radius:11px;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:17px;padding:20px 22px;display:grid;box-shadow:0 5px 20px #00000040}.risk-icon{color:#ff8a8a;background:#3a1f22;border-radius:50%;place-items:center;width:35px;height:35px;font-weight:900;display:grid}.risk-heading{color:#ff8a8a;letter-spacing:.11em;text-transform:uppercase;align-items:center;gap:10px;font-size:10px;font-weight:800;display:flex}.severity{color:#ff8a8a;background:#3a1f22;border-radius:5px;padding:4px 7px;font-size:8px}.risk-copy h2{margin:6px 0;font-family:Georgia,Times New Roman,serif;font-size:19px;font-weight:600}.risk-copy p{color:#a8a8b0;margin:0;font-size:12px}.risk-copy strong{color:#ff8a8a}.evidence-row{color:#8a8a92;gap:7px;margin-top:10px;font-size:9px;display:flex}.primary-button,.secondary-button,.full-button,.text-button{border:0;border-radius:8px;font-weight:700}.primary-button{background:var(--teal);color:#0a0a0d;padding:11px 15px;font-size:11px;box-shadow:0 4px 14px #00000066}.primary-button span{margin-left:8px}.primary-button:hover{background:#d4d4d9}.metrics{border:1px solid var(--line);background:var(--card);border-radius:11px;grid-template-columns:repeat(4,minmax(0,1fr));margin-top:21px;display:grid;overflow:hidden}.metric{border-right:1px solid var(--line);min-height:115px;padding:20px 22px;position:relative}.metric:last-child{border-right:0}.metric:after{content:"";background:#3a3a40;height:3px;position:absolute;bottom:0;left:0;right:0}.metric-danger:after{background:var(--orange)}.metric-warning:after{background:#6a6a72}.metric-success:after{background:#d4d4d9}.metric-label{color:#8a8a92;letter-spacing:.11em;font-size:9px;font-weight:800}.metric-value{margin:12px 0 8px;font-family:Georgia,Times New Roman,serif;font-size:24px}.metric-note{color:#8a8a92;font-size:10px}.content-grid{grid-template-columns:minmax(0,1.45fr) minmax(280px,.75fr);gap:20px;margin-top:21px;display:grid}.panel{border:1px solid var(--line);background:var(--card);border-radius:11px;padding:22px;box-shadow:0 7px 28px #00000030}.panel-head{justify-content:space-between;align-items:flex-start;margin-bottom:17px;display:flex}.panel-head h3{margin:0;font-family:Georgia,Times New Roman,serif;font-size:18px;font-weight:600}.text-button{color:var(--teal);background:0 0;padding:5px;font-size:10px}.decision-card{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:17px}.decision-top{justify-content:space-between;align-items:center;display:flex}.tag{text-transform:uppercase;border-radius:12px;padding:4px 8px;font-size:8px;font-weight:800}.tag-urgent{color:#ff8a8a;background:#3a1f22}.decision-time{color:#8a8a92;font-size:9px}.decision-card h4{margin:12px 0 5px;font-size:14px}.decision-summary{color:#a8a8b0;margin:0;font-size:10px;line-height:1.55}.recommendation{background:#1c1c20;border:1px solid #333338;border-radius:8px;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;margin:15px 0;padding:13px;display:grid}.recommendation-mark{background:var(--teal);color:#0a0a0d;border-radius:8px;place-items:center;width:30px;height:30px;font-size:11px;font-weight:900;display:grid}.recommendation small,.recommendation strong,.recommendation p{display:block}.recommendation small{color:#a8a8b0;letter-spacing:.1em;font-size:7px;font-weight:800}.recommendation strong{margin:3px 0;font-size:11px}.recommendation p{color:#9a9aa2;margin:0;font-size:9px}.confidence{color:var(--teal);border-left:1px solid #333338;padding-left:14px;font-size:16px;font-weight:800}.confidence small{letter-spacing:0;margin-top:2px;font-weight:500}.decision-actions{justify-content:flex-end;gap:9px;display:flex}.secondary-button{color:#c9c9d1;background:#1c1c20;border:1px solid #333338;padding:10px 13px;font-size:10px}.control-note{color:#8a8a92;text-align:center;border-top:1px solid #2a2a30;margin:13px 0 0;padding-top:12px;font-size:8px}.control-note span{color:var(--teal);font-weight:900}.live{color:#c9c9d1;letter-spacing:.1em;font-size:8px;font-weight:800}.live i{background:#e8e8ec;border-radius:50%;width:6px;height:6px;margin-right:4px;display:inline-block;box-shadow:0 0 0 3px #ffffff1f}.signal-list{display:grid}.signal{border-bottom:1px solid #2a2a30;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:11px;min-height:59px;display:grid}.signal-icon{border-radius:7px;place-items:center;width:29px;height:29px;font-weight:800;display:grid}.signal-icon.weather{color:#c9c9d1;background:#1c1c20}.signal-icon.port{color:#c9c9d1;background:#1c1c20}.signal-icon.ship{color:#c9c9d1;background:#1c1c20}.signal-icon.road{color:#c9c9d1;background:#1c1c20}.signal strong{margin-bottom:3px;font-size:10px;display:block}.signal p{color:#9a9aa2;margin:0;font-size:9px}.signal-time{color:#8a8a92;font-size:8px}.full-button{color:#c9c9d1;background:#1c1c20;border:1px solid #333338;width:100%;margin-top:17px;padding:10px;font-size:9px}.view-stack{gap:20px;animation:.25s both view-in;display:grid}@keyframes view-in{0%{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}.view-intro{justify-content:space-between;align-items:flex-end;gap:30px;padding:5px 1px 2px;display:flex}.view-intro h2{letter-spacing:-.02em;margin:0 0 8px;font-family:Georgia,Times New Roman,serif;font-size:27px;font-weight:500}.view-intro p:not(.eyebrow){color:#6c7880;max-width:730px;margin:0;font-size:12px;line-height:1.6}.autonomy-chip{background:#f1faf7;border:1px solid #bcded6;border-radius:9px;min-width:190px;padding:13px 16px}.autonomy-chip span,.autonomy-chip strong{display:block}.autonomy-chip span{color:#558d81;letter-spacing:.12em;margin-bottom:5px;font-size:8px;font-weight:800}.autonomy-chip strong{color:#155f56;font-size:11px}.risk-list,.decision-list{gap:10px;display:grid}.risk-row{border:1px solid var(--line);background:#fff;border-left:3px solid #d9a345;border-radius:10px;grid-template-columns:78px minmax(0,1fr) 72px 70px;align-items:center;gap:18px;min-height:83px;padding:16px 18px;display:grid;box-shadow:0 5px 18px #1a2c3308}.risk-row-high{border-left-color:var(--orange)}.risk-level{color:#bd4a2b;letter-spacing:.1em;font-size:9px;font-weight:900}.risk-level-medium{color:#ae781c}.risk-level-low{color:#6a7d84}.risk-row strong{margin-bottom:6px;font-size:12px;display:block}.risk-row p{color:#7a858b;margin:0;font-size:10px}.probability{color:#1e3a44;text-align:center;font-size:18px;font-weight:800}.probability small{color:#89949a;margin-top:3px;font-size:7px;font-weight:500;display:block}.risk-row button,.connector button{color:#52626a;background:#fff;border:1px solid #d5dddf;border-radius:7px;padding:8px 10px;font-size:9px;font-weight:700}.table-panel{padding:0;overflow:hidden}.data-table{min-width:790px}.table-row{color:#4f5f67;border-bottom:1px solid #e9edef;grid-template-columns:1.25fr 1fr .55fr .55fr .8fr .65fr;align-items:center;min-height:67px;padding:0 21px;font-size:10px;display:grid}.table-row:last-child{border-bottom:0}.table-row strong,.table-row small{display:block}.table-row strong{color:#1f343d;font-size:10px}.table-row small{color:#8b959a;margin-top:3px;font-size:8px}.table-header{color:#7f8b91;letter-spacing:.08em;background:#f7f9f8;min-height:43px;font-size:8px;font-weight:800}.status{color:#577078;background:#edf2f2;border-radius:11px;justify-content:center;min-width:60px;padding:5px 7px;font-size:8px;font-weight:800;display:inline-flex}.status-critical,.status-high-risk{color:#ad4729;background:#fbe5de}.status-at-risk{color:#a46b12;background:#fff2d9}.status-healthy,.status-connected{color:#257361;background:#e2f3ed}.status-ready,.status-tracking{color:#496d89;background:#e9eff5}.negative{color:#c55232;font-weight:800}.route-strip{color:#fff;background:linear-gradient(120deg,#0c2a36,#123944);border-radius:11px;justify-content:center;align-items:center;gap:0;min-height:90px;padding:20px 100px;display:flex;position:relative}.route-strip span{font-size:10px;font-weight:800;position:absolute;left:28px}.route-strip span:nth-of-type(2){left:auto;right:28px}.route-strip i{background:#4f817f;flex:1;height:2px}.route-strip i:after{content:"";background:#74cab8;border-radius:50%;width:7px;height:7px;margin-top:-3px;display:block}.route-strip .risk-node:after{background:#ef7b53;box-shadow:0 0 0 6px #ef7b532e}.route-strip strong{color:#a7c8c7;letter-spacing:.08em;font-size:8px;position:absolute;top:18px;left:50%;transform:translate(-50%)}.queue-card{border:1px solid var(--line);background:#fff;border-radius:11px;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:16px;padding:20px;display:grid}.queue-number{color:#aeb7ba;font-family:Georgia,serif;font-size:20px}.queue-body h3{margin:8px 0 5px;font-family:Georgia,serif;font-size:16px}.queue-body>p{color:#68767d;margin:0;font-size:10px;line-height:1.55}.tag-normal{color:#537483;background:#e7eff2}.queue-meta{gap:8px;margin-top:10px;display:flex}.queue-meta span{color:#869197;border-right:1px solid #dfe4e6;padding-right:8px;font-size:8px}.queue-buttons{gap:8px;display:flex}.intro-actions{align-items:center;gap:9px;display:flex}.read-only-badge{white-space:nowrap;color:#237260;letter-spacing:.1em;background:#f0faf7;border:1px solid #b9ddd5;border-radius:7px;padding:9px 12px;font-size:8px;font-weight:900}.add-tool-button{background:var(--teal);color:#fff;border:0;border-radius:8px;align-items:center;gap:7px;padding:9px 13px;font-size:9px;font-weight:800;display:inline-flex;box-shadow:0 4px 10px #0d706726}.add-tool-button span{font-size:14px;line-height:1}.flow-bar{border:1px solid var(--line);background:#fff;border-radius:11px;grid-template-columns:1fr auto 1fr auto 1fr auto 1fr;align-items:center;gap:14px;padding:17px 19px;display:grid}.flow-bar>div{grid-template-columns:27px 1fr;column-gap:9px;display:grid}.flow-bar div>span{color:#207363;background:#e4f2ef;border-radius:7px;grid-row:1/3;place-items:center;width:27px;height:27px;font-size:10px;font-weight:900;display:grid}.flow-bar strong,.flow-bar small{display:block}.flow-bar strong{font-size:10px}.flow-bar small{color:#899399;margin-top:3px;font-size:7px}.flow-bar b{color:#9ba8ad;font-weight:400}.integration-grid{grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);gap:20px;display:grid}.secure-note{color:#7e8c92;font-size:8px}.connector-list{display:grid}.connector{border-bottom:1px solid #edf0f1;grid-template-columns:38px minmax(0,1fr) auto 68px;align-items:center;gap:12px;min-height:64px;display:grid}.connector:last-child{border-bottom:0}.connector-logo{color:#fff;border-radius:8px;place-items:center;width:34px;height:34px;font-size:10px;font-weight:900;display:grid}.connector-logo.excel{background:#1f7244}.connector-logo.sap{background:#1476a5}.connector-logo.microsoft{background:#3266ac}.connector-logo.netsuite{background:#394651}.connector-logo.odoo{background:#87557f}.connector strong,.connector small{display:block}.connector strong{margin-bottom:4px;font-size:10px}.connector small{color:#89949a;font-size:8px}.coverage-list{grid-template-columns:1fr 1fr;gap:10px;display:grid}.coverage-list>div{background:#fafbfa;border:1px solid #e5eaeb;border-radius:8px;padding:13px}.coverage-list span,.coverage-list strong,.coverage-list small{display:block}.coverage-list span{color:#849097;text-transform:uppercase;letter-spacing:.08em;font-size:8px}.coverage-list strong{margin:7px 0 3px;font-size:14px}.coverage-list small{color:#90999e;font-size:8px}.sync-log{background:#eef8f5;border-radius:8px;align-items:center;gap:10px;margin-top:13px;padding:11px 13px;display:flex}.sync-log .pulse{flex:none}.sync-log strong,.sync-log small{display:block}.sync-log strong{font-size:9px}.sync-log small{color:#6d827d;margin-top:3px;font-size:8px}.universal-import{justify-content:space-between;align-items:center;gap:20px;display:flex}.import-copy{align-items:center;gap:15px;display:flex}.import-copy h3{margin:0 0 5px;font-family:Georgia,serif;font-size:16px}.import-copy p:not(.eyebrow){color:#748087;max-width:600px;margin:0;font-size:9px;line-height:1.5}.import-icon{color:#167161;background:#e6f2ef;border-radius:10px;place-items:center;width:43px;height:43px;font-size:18px;display:grid}.import-actions{align-items:center;gap:8px;display:flex}.file-input{display:none}.download-link{white-space:nowrap;align-items:center;text-decoration:none;display:inline-flex}.integration-footnote{color:#889399;text-align:center;margin:-7px 0 0;font-size:8px}.dialog-backdrop{z-index:50;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);background:#07171ea3;place-items:center;padding:20px;display:grid;position:fixed;inset:0}.dialog{background:#fff;border-radius:14px;width:min(760px,100%);max-height:calc(100vh - 40px);padding:28px;animation:.22s both dialog-in;position:relative;overflow:auto;box-shadow:0 28px 80px #00000040}.connector-dialog{width:min(600px,100%)}.tools-dialog{width:min(900px,100%)}@keyframes dialog-in{0%{opacity:0;transform:translateY(10px)scale(.985)}to{opacity:1;transform:none}}.dialog-close{color:#5e6b71;background:#f0f3f3;border:0;border-radius:50%;width:30px;height:30px;font-size:18px;position:absolute;top:15px;right:17px}.dialog h2{margin:3px 0 8px;font-family:Georgia,serif;font-size:23px;font-weight:500}.dialog-lead{color:#6f7b81;margin:0 0 18px;font-size:10px;line-height:1.6}.dialog-risk-head{align-items:center;gap:12px;padding-right:30px;display:flex}.dialog-risk-head .eyebrow{margin-bottom:4px}.dialog-evidence{border:1px solid var(--line);border-radius:9px;grid-template-columns:repeat(3,1fr);margin:20px 0;display:grid;overflow:hidden}.dialog-evidence>div{border-right:1px solid var(--line);padding:14px 16px}.dialog-evidence>div:last-child{border-right:0}.dialog-evidence span,.dialog-evidence strong,.dialog-evidence small{display:block}.dialog-evidence span{color:#849096;letter-spacing:.09em;font-size:7px;font-weight:800}.dialog-evidence strong{margin:6px 0 2px;font-family:Georgia,serif;font-size:18px}.dialog-evidence small{color:#8b959a;font-size:8px}.options-title{margin:0 0 8px;font-size:11px}.options-table{gap:7px;display:grid}.option{border:1px solid var(--line);border-radius:8px;grid-template-columns:18px minmax(0,1fr) 85px 75px;align-items:center;gap:11px;min-height:66px;padding:12px;display:grid;position:relative}.recommended-option{background:#f1faf7;border-color:#8fcbbd}.option-radio{color:#16816e}.option strong,.option small{display:block}.option strong{font-size:10px}.option small{color:#7f8a90;margin-top:4px;font-size:8px}.option>span:not(.option-radio){font-size:10px;font-weight:800}.option em{color:#4e8c7f;letter-spacing:.07em;font-size:6px;font-style:normal;font-weight:900;position:absolute;top:6px;right:8px}.source-note,.permission-box{color:#68767c;background:#f4f6f6;border-radius:8px;margin-top:14px;padding:12px 14px;font-size:8px;line-height:1.55}.source-note strong{color:#31474f}.dialog-actions{justify-content:flex-end;gap:9px;margin-top:18px;display:flex}.form-grid{grid-template-columns:1fr 1fr;gap:12px;display:grid}.form-grid label{color:#66757c;text-transform:uppercase;letter-spacing:.07em;font-size:8px;font-weight:800}.form-grid .wide{grid-column:1/-1}.form-grid input,.form-grid select{color:#30434b;text-transform:none;letter-spacing:0;background:#fff;border:1px solid #d5dddf;border-radius:7px;width:100%;height:38px;margin-top:6px;padding:0 10px;font-size:10px;display:block}.permission-box{grid-template-columns:1fr 1fr;gap:6px 12px;display:grid}.permission-box strong{color:#324850;grid-column:1/-1;margin-bottom:4px}.permission-box .denied{color:#a34b34}.toast{z-index:80;color:#fff;background:#0c343e;border-radius:10px;align-items:center;gap:10px;max-width:420px;padding:14px 17px;font-size:10px;animation:.2s both dialog-in;display:flex;position:fixed;bottom:24px;right:24px;box-shadow:0 16px 40px #081e2638}.toast span{background:#38a58d;border-radius:50%;place-items:center;width:20px;height:20px;font-weight:900;display:grid}.tool-grid{grid-template-columns:repeat(4,1fr);gap:9px;display:grid}.tool-card{min-height:112px;color:var(--ink);text-align:left;background:#fff;border:1px solid #dce3e5;border-radius:9px;justify-items:start;padding:13px;display:grid;position:relative}.tool-card.selected-tool{background:#f2faf7;border-color:#72b9a8;box-shadow:inset 0 0 0 1px #72b9a8}.tool-logo{color:#3e555e;background:#e8eeee;border-radius:7px;place-items:center;width:30px;height:30px;margin-bottom:10px;font-size:10px;font-weight:900;display:grid}.tool-logo.excel{color:#fff;background:#237447}.tool-logo.sheets{color:#fff;background:#278655}.tool-logo.folder{color:#3d6b85;background:#e5eff5}.tool-logo.api{color:#665187;background:#eee9f5}.tool-card strong,.tool-card small{display:block}.tool-card strong{font-size:10px}.tool-card small{color:#859097;margin-top:4px;font-size:8px}.tool-card em{color:#5c8f84;letter-spacing:.06em;font-size:6px;font-style:normal;font-weight:900;position:absolute;top:8px;right:8px}.excel-workflow{background:#fafbfa;border:1px solid #dfe5e7;border-radius:10px;margin-top:14px;padding:16px}.excel-workflow-head{align-items:center;gap:10px;margin-bottom:12px;display:flex}.excel-workflow-head .tool-logo{flex:none;margin:0}.excel-workflow-head strong,.excel-workflow-head small{display:block}.excel-workflow-head strong{font-size:11px}.excel-workflow-head small{color:#879298;margin-top:3px;font-size:8px}.connection-options{grid-template-columns:repeat(3,1fr);gap:8px;display:grid}.connection-option{cursor:pointer;background:#fff;border:1px solid #dfe5e7;border-radius:8px;grid-template-columns:16px 1fr;gap:8px;min-height:88px;padding:12px;display:grid;position:relative}.connection-option input{width:12px;height:12px;accent-color:var(--teal)}.connection-option span strong,.connection-option span small{display:block}.connection-option span strong{font-size:9px}.connection-option span small{color:#7f8a90;margin-top:5px;font-size:7px;line-height:1.45}.connection-option em{color:#839097;letter-spacing:.07em;font-size:6px;font-style:normal;font-weight:900;position:absolute;bottom:7px;right:7px}.recommended-connection{background:#f1faf7;border-color:#8fcbbd}.mapping-flow{border-top:1px solid #e2e7e8;grid-template-columns:1fr auto 1fr auto 1fr auto 1fr;align-items:center;gap:8px;margin-top:12px;padding-top:12px;display:grid}.mapping-flow>div{grid-template-columns:23px 1fr;column-gap:7px;display:grid}.mapping-flow div>span{color:#267363;background:#e1f1ed;border-radius:6px;grid-row:1/3;place-items:center;width:23px;height:23px;font-size:8px;font-weight:900;display:grid}.mapping-flow strong,.mapping-flow small{display:block}.mapping-flow strong{font-size:8px}.mapping-flow small{color:#8a959a;margin-top:2px;font-size:6px}.mapping-flow b{color:#a2adb1;font-size:10px;font-weight:400}.signal-source-grid{grid-template-columns:repeat(3,1fr);gap:14px;display:grid}.source-card{border:1px solid var(--line);background:#fff;border-radius:11px;flex-direction:column;min-height:184px;padding:18px;display:flex;box-shadow:0 5px 18px #1a2c3308}.source-card-head{justify-content:space-between;align-items:center;margin-bottom:15px;display:flex}.source-card .eyebrow{margin-bottom:5px}.source-card h3{margin:0 0 12px;font-family:Georgia,Times New Roman,serif;font-size:16px;font-weight:500}.source-card>strong{color:#183640;margin-bottom:7px;font-size:15px}.source-card>small{color:#77858c;font-size:9px;line-height:1.55}.source-card .text-button{align-self:flex-start;margin-top:auto;padding-top:13px}.carrier-ready{background:linear-gradient(145deg,#fff,#f2faf7);border-color:#bcded6}.status-live{color:#257361;background:#e2f3ed}.status-loading{color:#718087;background:#f0f2f2}.status-unavailable{color:#ad4729;background:#fbe5de}.connector-logo.weather-source{background:#3475a8}.connector-logo.nhc-source{background:#e66b45}.connector-logo.carrier-source{background:#18766a}.tool-logo.weather{color:#3475a8;background:#e8f1f8}.tool-logo.carrier{color:#18766a;background:#e4f2ef}.mapping-dialog{width:min(820px,100%)}.quality-summary{background:#fafbfa;border:1px solid #e0e6e7;border-radius:10px;grid-template-columns:150px 1fr;align-items:center;gap:18px;margin:18px 0;padding:15px;display:grid}.quality-score{color:#9d6918;background:#fff2d9;border-radius:9px;align-items:center;gap:12px;padding:11px 14px;display:flex}.quality-score.quality-good{color:#247360;background:#e3f4ee}.quality-score strong{font-family:Georgia,serif;font-size:29px}.quality-score span{letter-spacing:.08em;font-size:7px;font-weight:900;line-height:1.45}.quality-summary>div:last-child>strong{margin-bottom:6px;font-size:10px;display:block}.quality-summary p{color:#6f7c82;margin:3px 0;font-size:8px;line-height:1.45}.mapping-table{border:1px solid #dfe5e7;border-radius:9px;max-height:330px;overflow:auto}.mapping-row{border-bottom:1px solid #edf0f1;grid-template-columns:minmax(150px,1fr) minmax(190px,1.2fr) 82px;align-items:center;gap:14px;min-height:48px;padding:7px 13px;display:grid}.mapping-row:last-child{border-bottom:0}.mapping-row strong{font-size:9px}.mapping-row select{color:#40545d;background:#fff;border:1px solid #d6dfe1;border-radius:6px;width:100%;height:32px;padding:0 8px;font-size:9px}.mapping-header{color:#819096;letter-spacing:.08em;background:#f5f7f7;min-height:35px;font-size:7px;font-weight:900}.map-confidence{color:#6d7b82;background:#f0f2f2;border-radius:10px;justify-self:start;padding:5px 7px;font-size:7px;font-weight:900}.map-confidence.good{color:#257361;background:#e2f3ed}.map-confidence.watch{color:#a46b12;background:#fff2d9}@media (max-width:980px){.app-shell{grid-template-columns:76px minmax(0,1fr)}.sidebar{padding-inline:10px}.brand{padding-inline:12px}.brand>span:last-child,.nav-item>span:not(.icon):not(.nav-badge),.profile>span:last-child{display:none}.nav-item{justify-content:center;padding:0}.nav-item.active:before{left:-10px}.nav-badge{position:absolute;top:5px;right:5px}.profile{justify-content:center;padding-inline:0}.main{padding:25px 24px 40px}.content-grid,.integration-grid{grid-template-columns:1fr}.table-panel{overflow-x:auto}.flow-bar{grid-template-columns:1fr 1fr}.flow-bar>b{display:none}.route-strip{padding-inline:80px}}@media (max-width:700px){.app-shell{display:block}.sidebar{z-index:10;flex-direction:row;align-items:center;width:100%;height:64px;padding:7px 10px;position:fixed;inset:auto 0 0}.brand,.sidebar-bottom{display:none}.nav{justify-content:space-around;width:100%;display:flex}.nav-item{width:54px;min-height:50px}.nav-item.active:before{border-radius:0 0 3px 3px;width:24px;height:3px;top:-7px;left:50%;transform:translate(-50%)}.nav-badge{right:4px}.main{padding:22px 16px 90px}.topbar{align-items:flex-start}.sync{display:none}h1{font-size:25px}.risk-brief{grid-template-columns:auto 1fr}.risk-brief>.primary-button{grid-column:1/-1;width:100%}.metrics{grid-template-columns:repeat(2,1fr)}.metric:nth-child(2){border-right:0}.metric:nth-child(-n+2){border-bottom:1px solid var(--line)}.recommendation{grid-template-columns:auto 1fr}.confidence{border-left:0;grid-column:2;padding:0}.decision-actions{display:grid}.decision-actions button{width:100%}.view-intro,.universal-import{flex-direction:column;align-items:flex-start}.intro-actions{justify-content:space-between;width:100%}.autonomy-chip{width:100%}.risk-row{grid-template-columns:58px minmax(0,1fr)}.risk-row .probability{grid-column:1}.risk-row button{grid-column:2}.flow-bar{grid-template-columns:1fr}.connector{grid-template-columns:38px minmax(0,1fr) auto}.connector .status{display:none}.coverage-list{grid-template-columns:1fr 1fr}.import-actions{grid-template-columns:1fr;width:100%;display:grid}.import-actions>*{justify-content:center;width:100%}.queue-card{grid-template-columns:30px 1fr}.queue-buttons{grid-column:2}.route-strip{padding-inline:70px}.dialog{padding:22px 18px}.dialog-evidence{grid-template-columns:1fr}.dialog-evidence>div{border-right:0;border-bottom:1px solid var(--line)}.dialog-evidence>div:last-child{border-bottom:0}.option{grid-template-columns:18px minmax(0,1fr)}.option>span:not(.option-radio){grid-column:2}.dialog-actions{display:grid}.form-grid{grid-template-columns:1fr}.form-grid .wide{grid-column:auto}.permission-box{grid-template-columns:1fr}.tool-grid{grid-template-columns:1fr 1fr}.connection-options{grid-template-columns:1fr}.mapping-flow{grid-template-columns:1fr 1fr}.mapping-flow>b{display:none}.toast{bottom:80px;left:16px;right:16px}.view-intro h2{font-size:23px}}@media (max-width:980px){.signal-source-grid{grid-template-columns:1fr 1fr}}@media (max-width:700px){.signal-source-grid,.quality-summary{grid-template-columns:1fr}.mapping-table{overflow-x:auto}.mapping-row{min-width:580px}}
+
+
+/* --- Additions: demo/live banner, why detail, dismiss, urgency, whatsapp preview --- */
+.mode-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 22px;font-size:12.5px;border-bottom:1px solid var(--orange)}
+.mode-banner-demo{background:var(--card)}
+.mode-banner-live{background:#eef8f6;border-bottom-color:var(--teal)}
+.mode-banner-text{display:flex;align-items:center;gap:8px;color:var(--ink)}
+.mode-banner-tag{font-weight:800;letter-spacing:.04em;color:var(--orange)}
+.mode-banner-live .mode-banner-tag{color:var(--teal)}
+.mode-banner-toggle{background:var(--navy);color:#fff;border:0;border-radius:7px;padding:6px 11px;font-size:11px;cursor:pointer;white-space:nowrap}
+.signal-updated-note{color:#8b959a;font-size:10.5px;white-space:nowrap;flex-shrink:0}
+.mode-banner-text{min-width:0}
+.mode-banner-text span{min-width:0}
+
+.urgency-note{display:flex;align-items:center;gap:6px;color:var(--orange);font-size:11px;font-weight:700;margin:8px 0 2px;letter-spacing:.02em}
+.urgency-icon{font-size:12px}
+
+.why-toggle{display:flex;align-items:center;gap:6px;background:0 0;border:0;color:var(--ink);font-weight:700;font-size:12px;cursor:pointer;margin-top:13px;padding:0}
+.why-detail{margin:8px 0 0;padding-left:18px;color:#a8a8b0;font-size:12px;line-height:1.65}
+.why-detail li{margin-bottom:3px}
+
+.dismiss-button{background:0 0;border:0;color:#8a8a92;font-size:11px;cursor:pointer;margin-left:auto;padding:10px 4px}
+.decision-actions{align-items:center}
+
+.whatsapp-preview{border:1px solid #333338;background:#1c1c20;border-radius:8px;padding:11px 13px;margin-top:13px}
+.whatsapp-preview-head{color:var(--teal);font-weight:700;font-size:11.5px;margin-bottom:6px}
+.whatsapp-bubble{background:#0f0f12;border:1px solid var(--line);border-radius:7px;padding:9px 10px;font-family:var(--font-mono,monospace);font-size:11px;color:var(--ink);line-height:1.5}
+
+.decision-card-dismissed{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px dashed var(--line);background:#141417;color:#8a8a92;font-size:12.5px}
+.undo-button{background:0 0;border:0;color:var(--teal);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+
+.whatsapp-button{display:inline-flex;align-items:center;gap:7px;background:#25D366;color:#fff;text-decoration:none;border-radius:7px;padding:8px 13px;font-size:11.5px;font-weight:700;margin-top:9px}
+.whatsapp-button:hover{background:#1fb959}
+
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--navy);color:#fff;padding:10px 18px;border-radius:8px;font-size:12.5px;box-shadow:0 8px 24px #00000066;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:999}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.view-placeholder{border:1px solid var(--line);background:var(--card);border-radius:11px;padding:60px 30px;margin-top:21px;text-align:center;color:#8a8a92;font-size:13px}
+.view-placeholder strong{display:block;color:var(--ink);font-size:15px;margin-bottom:6px}
+.view-placeholder button{margin-top:14px;background:var(--teal);color:#0a0a0d;border:0;border-radius:7px;padding:8px 14px;font-size:12px;cursor:pointer}
+
+/* --- Additions: live signal severity states, sample-data tag --- */
+.severity-low{color:#c9c9d1;background:#1c1c20}
+.severity-medium{color:#d4d4d9;background:#232320}
+.severity-high{color:#ff8a8a;background:#3a1f22}
+.severity-unknown{color:#8a8a92;background:#1c1c20}
+.risk-brief-low{border-color:#333338;border-left-color:var(--teal);background:#141417}
+.risk-brief-low .risk-icon{color:#c9c9d1;background:#1c1c20}
+.risk-brief-medium{border-color:#3a3a40;border-left-color:#8a8a92;background:#141417}
+.risk-brief-medium .risk-icon{color:#d4d4d9;background:#232320}
+.risk-brief-unknown{border-color:var(--line);border-left-color:#8a8a92;background:#141417}
+.risk-brief-unknown .risk-icon{color:#8a8a92;background:#1c1c20}
+.signal-note{color:#8a8a92;grid-column:2;margin-top:2px;font-size:8px}
+.sample-tag{color:#d4d4d9;background:#232320;border-radius:9px;letter-spacing:.06em;text-transform:uppercase;padding:3px 7px;font-size:7px;font-weight:800;margin-left:8px;vertical-align:middle}
+
+/* --- Additions: persistent approve confirmation state --- */
+.approved-button{background:#1c1c20!important;color:#e8e8ec!important;border:1px solid #333338;box-shadow:none!important;cursor:default}
+button:disabled{opacity:.55;cursor:default}
+
+/* --- Additions: Shipments / driver tracking agent view --- */
+.shipment-card{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:15px 17px;margin-bottom:10px}
+.shipment-card:last-child{margin-bottom:0}
+.shipment-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.shipment-top strong{font-size:13px}
+.shipment-meta{color:#8a8a92;font-size:10px;margin-top:3px}
+.shipment-status{text-transform:uppercase;letter-spacing:.06em;border-radius:9px;padding:4px 8px;font-size:8px;font-weight:800;white-space:nowrap}
+.shipment-status-pending{color:#c9c9d1;background:#1c1c20}
+.shipment-status-tracking_requested{color:#d4d4d9;background:#232320}
+.shipment-status-tracking_received{color:#e8e8ec;background:#232320;border:1px solid #333338}
+.shipment-overdue{color:var(--orange)}
+.shipment-detail{color:#a8a8b0;font-size:11px;margin-top:8px;line-height:1.5}
+.shipment-detail strong{color:var(--ink)}
+.shipment-actions{margin-top:11px;display:flex;justify-content:flex-end;gap:9px}
+.shipment-empty{color:#8a8a92;font-size:12px;text-align:center;padding:20px}
+
+/* --- Additions: Decisions history view --- */
+.decision-row{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:13px 16px;margin-bottom:8px;display:grid;grid-template-columns:150px 90px minmax(0,1fr) 140px;align-items:center;gap:14px}
+.decision-row:last-child{margin-bottom:0}
+.decision-row-time{color:#8a8a92;font-size:10.5px}
+.decision-row-severity{text-transform:uppercase;font-size:9px;font-weight:800;letter-spacing:.05em}
+.decision-row-detail{color:#a8a8b0;font-size:11px}
+.decision-row-detail strong{color:var(--ink)}
+.decision-status{text-transform:uppercase;letter-spacing:.05em;border-radius:9px;padding:4px 8px;font-size:8px;font-weight:800;text-align:center;white-space:nowrap}
+.decision-status-approved{color:#e8e8ec;background:#232320;border:1px solid #333338}
+.decision-status-dismissed{color:#8a8a92;background:#1c1c20}
+.decision-status-no_action{color:#c9c9d1;background:#1c1c20}
+.decision-status-not_applicable{color:#6a6a72;background:#141417}
+
+/* --- Additions: mobile fix for the live-data mode banner, which was
+   collapsing into a squeezed narrow column (flex items refusing to wrap
+   without min-width:0/flex-wrap) --- */
+@media (max-width:700px){
+  .mode-banner{flex-direction:column;align-items:flex-start;gap:6px;padding:11px 16px}
+  .mode-banner-text{flex-direction:column;align-items:flex-start;gap:4px}
+  .signal-updated-note{white-space:normal}
+}
+
+/* --- Additions: Inventory view (real ERP connector data) --- */
+.inventory-row{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:13px 16px;margin-bottom:8px;display:grid;grid-template-columns:minmax(0,1.3fr) 110px 110px 100px minmax(0,1fr);align-items:center;gap:14px}
+.inventory-row:last-child{margin-bottom:0}
+.inventory-row strong{font-size:12px;display:block}
+.inventory-row-sku{color:#8a8a92;font-size:9.5px;margin-top:2px}
+.inventory-stat{font-size:11px;color:#a8a8b0}
+.inventory-stat strong{display:inline;font-size:11px;color:var(--ink)}
+.inventory-below-reorder{color:var(--orange);font-weight:800}
+.inventory-alt{color:#8a8a92;font-size:10px}
+@media (max-width:980px){
+  .inventory-row{grid-template-columns:1fr 1fr;grid-auto-rows:auto;row-gap:6px}
+}
+
+/* --- Additions: Integrations, Settings, Add tools views --- */
+.integration-row{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:14px 16px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:14px}
+.integration-row:last-child{margin-bottom:0}
+.integration-row strong{font-size:12.5px;display:block}
+.integration-row p{color:#a8a8b0;font-size:10.5px;margin:3px 0 0}
+.integration-status{text-transform:uppercase;letter-spacing:.05em;border-radius:9px;padding:5px 10px;font-size:8.5px;font-weight:800;white-space:nowrap}
+.integration-status-live{color:#e8e8ec;background:#232320;border:1px solid #333338}
+.integration-status-demo{color:#c9c9d1;background:#1c1c20}
+
+.settings-field{margin-bottom:14px}
+.settings-field label{color:#8a8a92;text-transform:uppercase;letter-spacing:.07em;font-size:9px;font-weight:800;display:block;margin-bottom:6px}
+.settings-field input{background:#0f0f12;border:1px solid #333338;color:var(--ink);border-radius:7px;width:100%;height:38px;padding:0 12px;font-size:12px}
+.settings-status-row{border-top:1px solid var(--line);margin-top:16px;padding-top:16px}
+.settings-status-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #222226;font-size:11.5px}
+.settings-status-item:last-child{border-bottom:0}
+.settings-status-item span:last-child{color:#a8a8b0}
+
+.tool-card-real{border:1px solid var(--line);background:#17171b;border-radius:11px;padding:18px;margin-bottom:12px}
+.tool-card-real:last-child{margin-bottom:0}
+.tool-card-real h4{margin:0 0 6px;font-size:14px}
+.tool-card-real p{color:#a8a8b0;font-size:11.5px;line-height:1.6;margin:0 0 8px}
+.tool-card-real .sample-tag{margin-left:0}
+
+.weather-day-row{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:12px 16px;margin-bottom:7px;display:grid;grid-template-columns:100px minmax(0,1fr) 90px 90px 80px;align-items:center;gap:12px;font-size:11.5px}
+.weather-day-row:last-child{margin-bottom:0}
+.weather-day-row.flagged{border-color:#3a2226}
+.weather-day-flag{color:var(--orange);font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+.storm-row{border:1px solid var(--line);background:#17171b;border-radius:9px;padding:14px 16px;margin-bottom:8px}
+.storm-row:last-child{margin-bottom:0}
+.storm-row strong{font-size:13px}
+.storm-row p{color:#a8a8b0;font-size:11px;margin:5px 0 0}
+
+/* --- Additions: language toggle --- */
+.lang-toggle{display:block;width:42px;margin:0 0 10px;border:1px solid var(--line);color:#c9c9d1;background:var(--card);border-radius:9px;height:30px;font-size:11px;font-weight:800;letter-spacing:.03em;cursor:pointer}
+.lang-toggle:hover{color:#fff;background:#1c1c20}
+
+/* --- Additions: visual refresh — wider elevation scale (page/card/
+   sidebar were only ~10-20 RGB units apart, flattening the whole UI) and
+   a calmer default accent (the old --orange, #ff4444, styled the routine
+   "some data is demo" banner shown on nearly every load — too alarming
+   for something that isn't an error). Real warnings inside data rows
+   (below-reorder figures, severity-high, urgency notes) all reference
+   --orange too, so this one change recalibrates both at once. --- */
+:root{
+  --card:#17171b;
+  --line:#38383f;
+  --orange:#e8a33d;
+}
+/* Shipments' "Add shipment" form (and anywhere else a bare input/select
+   is used without the .settings-field wrapper) fell back to unstyled
+   browser-default white fields — same kind of field as Settings'
+   correctly dark-themed .settings-field input, now made consistent. */
+input[type],select{background:#0f0f12;border:1px solid #333338;color:var(--ink);border-radius:7px;height:38px;padding:0 12px;font-size:12px}
+</style>
+</head>
+<body class="antialiased">
+<div class="app-shell"><aside class="sidebar"><div class="brand"><span class="brand-mark">U</span><span>UTOPIA</span></div><nav class="nav" aria-label="Main navigation"><button class="nav-item active" data-view="command" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⌁</span><span>Command</span></button><button class="nav-item " data-view="risks" onclick="selectNav(this)"><span class="icon" aria-hidden="true">△</span><span>Risks</span></button><button class="nav-item " data-view="inventory" onclick="selectNav(this)"><span class="icon" aria-hidden="true">▦</span><span>Inventory</span></button><button class="nav-item " data-view="shipments" onclick="selectNav(this)"><span class="icon" aria-hidden="true">↗</span><span>Shipments</span></button><button class="nav-item " data-view="decisions" onclick="selectNav(this)"><span class="icon" aria-hidden="true">✓</span><span>Decisions</span></button></nav><div class="sidebar-bottom"><button class="nav-item add-tools-nav" data-view="add-tools" onclick="selectNav(this)"><span class="icon" aria-hidden="true">＋</span><span>Add tools</span></button><button class="nav-item " data-view="integrations" onclick="selectNav(this)"><span class="icon" aria-hidden="true">⎋</span><span>Integrations</span></button><button class="nav-item" data-view="settings" onclick="selectNav(this)"><span class="icon" aria-hidden="true">·</span><span>Settings</span></button><button class="lang-toggle" id="langToggleBtn" onclick="toggleLang()" aria-label="Toggle language">ES</button><div class="profile"><span class="avatar" id="profileAvatar">AV</span><span><strong id="profileName">Ana Valle</strong><small id="profileEmail">Procurement lead</small></span></div><button class="nav-item" id="signOutBtn" onclick="utopiaSignOut()"><span class="icon" aria-hidden="true">⏻</span><span>Sign out</span></button></div></aside><main class="main"><header class="topbar"><div><p class="eyebrow" id="todayLabel">…</p><h1>Good morning, Ana.</h1></div><div class="top-actions"><button class="sync" id="erpSyncButton" onclick="selectNav(document.querySelector('.nav-item[data-view=\'add-tools\']'))"><span class="pulse" id="erpSyncPulse" style="background:#c9d0d3;box-shadow:0 0 0 3px #eef1f2"></span>ERP: not connected <small>Sample data</small></button><button class="icon-button" aria-label="Notifications" onclick="showNotificationSummary()">♢<span class="notification-dot"></span></button></div></header><div class="mode-banner mode-banner-demo" id="modeBanner">
+  <div class="mode-banner-text">
+    <span class="mode-banner-tag" id="modeBannerTag">SCORING ENGINE: LIVE</span>
+    <span id="modeBannerCopy">— the risk-brief card, Signal Watch, metrics, and Decision Queue below are all computed from real Open-Meteo + NOAA/NHC data combined with real math, evaluated around one configurable operational point (not a full route or multi-location network — see Settings). The underlying SKU inventory numbers shown here are sample data. The connector framework for Excel, Odoo, and SAP Business One is implemented — each real customer connection still needs credential setup, field validation, and potentially customer-specific mapping.</span>
+  </div>
+  <span id="signalUpdatedNote" class="signal-updated-note">fetching signals…</span>
+</div><section class="risk-brief" id="risks"><div class="risk-icon" id="riskIcon">…</div><div class="risk-copy"><div class="risk-heading"><span id="riskLocationLabel">Corridor</span><span class="severity" id="riskSeverityBadge">LOADING</span></div><h2 id="riskHeadline">Checking live weather and storm signals…</h2><p id="riskCopy">Fetching Open-Meteo's 7-day outlook and NOAA/NHC's active-storm feed for your configured location.</p><div class="evidence-row" id="riskEvidenceRow"><span>—</span></div></div></section><section class="metrics" aria-label="Supply chain overview"><article class="metric metric-danger"><div class="metric-label">INVENTORY AT RISK</div><div class="metric-value" id="metricExposureValue">…</div><div class="metric-note" id="metricExposureNote">Loading…</div></article><article class="metric metric-warning"><div class="metric-label">ACTIVE DISRUPTIONS</div><div class="metric-value" id="metricDisruptionsValue">…</div><div class="metric-note" id="metricDisruptionsNote">Loading…</div></article><article class="metric metric-neutral"><div class="metric-label">SKUS AT RISK</div><div class="metric-value" id="metricStockoutsValue">…</div><div class="metric-note" id="metricStockoutsNote">Loading…</div></article><article class="metric metric-success"><div class="metric-label">SERVICE COVERAGE</div><div class="metric-value" id="metricCoverageValue">…</div><div class="metric-note" id="metricCoverageNote">Demo ERP data</div></article></section><div class="content-grid"><section class="panel decision-panel"><div class="panel-head"><div><p class="eyebrow">DECISION QUEUE</p><h3>Actions that need your attention <span class="sample-tag" id="erpDataTag">Demo ERP data</span></h3></div><button class="text-button" onclick="showToast('This view surfaces the single highest-priority recommendation, live. A full multi-case list is part of the complete build.')">View all cases</button></div><article class="decision-card" id="decisionCard" hidden><div class="decision-top"><span class="tag tag-urgent" id="decisionTag">Urgent</span><span class="decision-time" id="decisionTime">Decision recommended today</span></div><div class="urgency-note"><span class="urgency-icon">⏱</span><span id="decisionUrgencyNote">Computing…</span></div><h4 id="decisionHeadline">Computing recommendation…</h4><p class="decision-summary" id="decisionSummary">Combining the live corridor signal with current inventory levels.</p><div class="recommendation"><span class="recommendation-mark">R</span><div><small>RECOMMENDED RESPONSE</small><strong id="recommendationStrong">…</strong><p id="recommendationCostLine">…</p></div><span class="confidence" id="roiBadge">—<small>ROI</small></span></div><button class="why-toggle" id="whyToggle" onclick="toggleWhy()">Why this recommendation <span id="whyChevron">▾</span></button>
+<ul class="why-detail" id="whyDetail" hidden></ul><div class="decision-actions"><button class="secondary-button" id="compareBtn" onclick="showToast('The recommendation shown is what the live scoring math currently ranks highest. Side-by-side comparison is part of the complete build.')">Compare all options</button><button class="primary-button" id="approveBtn" onclick="approveRecommendation()">Approve recommendation</button><button class="dismiss-button" id="dismissBtn" onclick="dismissCard()">✕ Not now</button></div><p class="control-note"><span>✓</span> No purchase, transfer or supplier action occurs without your authorization.</p><div class="whatsapp-preview">
+  <div class="whatsapp-preview-head">WhatsApp preview &middot; sent when you click below</div>
+  <div class="whatsapp-bubble" id="whatsappMessage">…</div>
+  <a class="whatsapp-button" id="whatsappLink" href="#" target="_blank" rel="noopener">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5.1-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.7.8-.8.9-.2.2-.3.2-.5.1-.2-.1-1-.4-1.9-1.2-.7-.6-1.2-1.4-1.3-1.6-.1-.2 0-.4.1-.5l.4-.4c.1-.1.2-.3.2-.4.1-.2 0-.3 0-.4l-.7-1.7c-.2-.4-.4-.4-.5-.4h-.5c-.2 0-.4.1-.6.3-.2.2-.8.8-.8 1.9s.8 2.2.9 2.4c.1.2 1.7 2.6 4.1 3.6.6.2 1 .4 1.4.5.6.2 1.1.1 1.5.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2-.1-.1-.2-.2-.4-.3z"/></svg>
+    Open in WhatsApp
+  </a>
+</div></article><div class="decision-card decision-card-dismissed" id="dismissedState" hidden>
+  <p>Dismissed &mdash; won't resurface unless the storm track or PO status changes.</p>
+  <button class="undo-button" onclick="undoDismiss()">&#8630; Undo</button>
+</div><div class="decision-card decision-card-dismissed" id="decisionEmptyState" hidden>
+  <p id="decisionEmptyText">No urgent inventory actions right now.</p>
+</div></section><section class="panel watch-panel"><div class="panel-head"><div><p class="eyebrow">SIGNAL WATCH</p><h3>Operational inputs</h3></div><span class="live"><i></i> CONNECTABLE</span></div><div class="signal-list"><div class="signal"><span class="signal-icon weather">⌁</span><div><strong id="weatherLocationLabel">Weather</strong><p id="weatherSummary">Fetching Open-Meteo 7-day outlook…</p></div><span class="signal-time" id="weatherTime">LIVE</span></div><div class="signal"><span class="signal-icon port">◎</span><div><strong>Tropical systems</strong><p id="stormSummary">Fetching NOAA/NHC active-storm feed…</p></div><span class="signal-time" id="stormTime">LIVE</span></div><div class="signal"><span class="signal-icon ship">↗</span><div><strong>Carrier milestones</strong><p>Connect with company credentials</p></div><span class="signal-time">READY</span></div><div class="signal" id="excelSignalRow" onclick="selectNav(document.querySelector('.nav-item[data-view=\'add-tools\']'))" style="cursor:pointer"><span class="signal-icon road">X</span><div><strong>Excel / ERP context</strong><p id="excelSignalDesc">Maps signals to actual inventory exposure</p></div><span class="signal-time" id="excelSignalStatus">READ</span></div></div><button class="full-button" onclick="showToast('Signal Watch here already reflects the live feeds in real time. A dedicated signal center is part of the complete build.')">Open signal center</button></section></div></main></div><div class="toast" id="toast"></div>
+
+<script>
+// TODO: replace with the real recipient's WhatsApp number, digits only, country code first (Honduras = 504)
+var WHATSAPP_NUMBER = "50499394433"; // real verified test recipient (see CLAUDE.md WhatsApp section)
+
+// Build order step 4: single scoring-engine endpoint. Combines the live
+// weather/storm signal (step 2) with ERP inventory (step 3) server-side, so
+// the corridor risk card and the Decision Queue are always consistent —
+// no duplicate severity logic client-side.
+var RISK_RECOMMENDATION_URL = "https://tldbuhwutvmaruaqeywk.supabase.co/functions/v1/risk-recommendation";
+
+var mainContent = null;
+var originalCommandHtml = null; // pristine English Command markup, captured once before any translation/dynamic update -- resetting to this on every re-render is what makes toggling language back to English actually work, instead of static labels getting stuck in whatever language they were last translated to
+var originalSidebarHtml = null; // same idea for the sidebar, which applyI18n() alone can't reset since it's additive-only
+var lastResult = null; // cached so undoDismiss() can re-render without refetching
+var currentView = 'command'; // tracked so the language toggle knows what to re-render
+var inventoryPollTimer = null; // auto-refresh while Inventory is open, see renderInventoryView()/stopInventoryPolling()
+var CURRENCY_SYMBOL = 'L'; // display label only (see risk_location_config.currency_symbol) -- set from real config in DOMContentLoaded, no conversion math anywhere
+
+// --- i18n: Spanish default (pilot audience is Honduran companies), English
+// toggle. Two mechanisms: (1) a static-string dictionary (T) applied via a
+// generic text-node walk (applyI18n) after every render, so the ~150+
+// static labels/buttons/headers across all 8 views translate without
+// touching each one by hand; (2) tr(en, es) for sentences built from live
+// data (severity, counts, names), called directly at each build site since
+// exact-string matching can't handle interpolated content.
+var LANG = localStorage.getItem('utopia_lang') || 'es';
+
+function tr(en, es){ return LANG === 'es' ? es : en; }
+function localeStr(){ return LANG === 'es' ? 'es-HN' : 'en-US'; }
+
+var T = {
+  // Sidebar / nav
+  'Command': 'Comando', 'Risks': 'Riesgos', 'Inventory': 'Inventario',
+  'Shipments': 'Envíos', 'Decisions': 'Decisiones', 'Add tools': 'Agregar herramientas',
+  'Integrations': 'Integraciones', 'Settings': 'Configuración',
+  'Procurement lead': 'Jefa de compras', 'Good morning, Ana.': 'Buenos días, Ana.',
+  // Topbar / ERP button / mode banner
+  'ERP: not connected': 'ERP: no conectado', 'Sample data': 'Datos de muestra',
+  'This demo runs on sample inventory data. The connector framework is implemented. Each customer connection still requires credential setup, field validation, and potentially customer-specific mapping.':
+    'Esta demo funciona con datos de inventario de muestra. El marco del conector está implementado. Cada conexión con un cliente aún requiere configuración de credenciales, validación de campos y posiblemente mapeo específico del cliente.',
+  'SCORING ENGINE: LIVE': 'MOTOR DE PUNTUACIÓN: EN VIVO',
+  '— the risk-brief card, Signal Watch, metrics, and Decision Queue below are all computed from real Open-Meteo + NOAA/NHC data combined with real math, evaluated around one configurable operational point (not a full route or multi-location network — see Settings). The underlying SKU inventory numbers shown here are sample data. The connector framework for Excel, Odoo, and SAP Business One is implemented — each real customer connection still needs credential setup, field validation, and potentially customer-specific mapping.':
+    '— la tarjeta de riesgo, Monitor de Señales, las métricas y la Cola de Decisiones se calculan con datos reales de Open-Meteo + NOAA/NHC y matemática real, evaluados alrededor de un solo punto operativo configurable (no una ruta completa ni una red multi-ubicación — ver Configuración). Los números de inventario por SKU son datos de muestra. El marco del conector para Excel, Odoo y SAP Business One está implementado — cada conexión real con un cliente aún necesita configuración de credenciales, validación de campos y posiblemente mapeo específico del cliente.',
+  // Command: risk brief
+  'Corridor': 'Corredor', 'LOADING': 'CARGANDO',
+  'Checking live weather and storm signals…': 'Consultando señales de clima y tormentas en vivo…',
+  "Fetching Open-Meteo's 7-day outlook and NOAA/NHC's active-storm feed for your configured location.":
+    'Consultando el pronóstico de 7 días de Open-Meteo y el feed de tormentas activas de NOAA/NHC para tu ubicación configurada.',
+  // Metrics
+  'INVENTORY AT RISK': 'INVENTARIO EN RIESGO', 'ACTIVE DISRUPTIONS': 'INTERRUPCIONES ACTIVAS',
+  'SKUS AT RISK': 'SKUS EN RIESGO', 'SERVICE COVERAGE': 'COBERTURA DE SERVICIO',
+  'Loading…': 'Cargando…', 'Demo ERP data': 'Datos de ERP de muestra',
+  // Decision Queue
+  'DECISION QUEUE': 'COLA DE DECISIONES', 'Actions that need your attention': 'Acciones que requieren tu atención',
+  'View all cases': 'Ver todos los casos',
+  'This view surfaces the single highest-priority recommendation, live. A full multi-case list is part of the complete build.':
+    'Esta vista muestra la recomendación de mayor prioridad, en vivo. Una lista completa de casos es parte de la versión completa.',
+  'Urgent': 'Urgente', 'Review': 'Revisar', 'Decision recommended today': 'Decisión recomendada hoy',
+  'Computing…': 'Calculando…', 'Computing recommendation…': 'Calculando recomendación…',
+  'Combining the live corridor signal with current inventory levels.': 'Combinando la señal del corredor en vivo con los niveles de inventario actuales.',
+  'RECOMMENDED RESPONSE': 'RESPUESTA RECOMENDADA', 'ROI': 'ROI', 'return': 'retorno',
+  'Why this recommendation': 'Por qué esta recomendación',
+  'Compare all options': 'Comparar todas las opciones',
+  'The recommendation shown is what the live scoring math currently ranks highest. Side-by-side comparison is part of the complete build.':
+    'La recomendación mostrada es la que la matemática de puntuación en vivo clasifica como la mejor. La comparación lado a lado es parte de la versión completa.',
+  'Approve recommendation': 'Aprobar recomendación', '✕ Not now': '✕ Ahora no',
+  'No purchase, transfer or supplier action occurs without your authorization.':
+    'Ninguna compra, transferencia o acción con proveedores ocurre sin tu autorización.',
+  'WhatsApp preview · sent when you click below': 'Vista previa de WhatsApp · se envía al hacer clic abajo',
+  'Open in WhatsApp': 'Abrir en WhatsApp',
+  "Dismissed — won't resurface unless the storm track or PO status changes.":
+    'Descartado — no reaparecerá a menos que cambie la trayectoria de la tormenta o el estado de la orden.',
+  'No urgent inventory actions right now.': 'No hay acciones urgentes de inventario en este momento.',
+  // Signal Watch
+  'SIGNAL WATCH': 'MONITOR DE SEÑALES', 'Operational inputs': 'Entradas operativas', 'CONNECTABLE': 'CONECTABLE',
+  'Weather': 'Clima', 'Fetching Open-Meteo 7-day outlook…': 'Consultando pronóstico de 7 días de Open-Meteo…',
+  'Tropical systems': 'Sistemas tropicales', 'Fetching NOAA/NHC active-storm feed…': 'Consultando feed de tormentas activas de NOAA/NHC…',
+  'Carrier milestones': 'Hitos del transportista', 'Connect with company credentials': 'Conectar con credenciales de la empresa',
+  'Excel / ERP context': 'Contexto de Excel / ERP', 'Maps signals to actual inventory exposure': 'Vincula señales con la exposición real del inventario',
+  'READY': 'LISTO', 'READ': 'LECTURA', 'Open signal center': 'Abrir centro de señales',
+  'Signal Watch here already reflects the live feeds in real time. A dedicated signal center is part of the complete build.':
+    'Monitor de Señales ya refleja los feeds en vivo en tiempo real. Un centro de señales dedicado es parte de la versión completa.',
+  // Shared across sub-views
+  '← Back to Command': '← Volver a Comando', 'Refresh': 'Actualizar',
+  // Shipments
+  'Driver/provider tracking agent': 'Agente de rastreo de conductor/proveedor',
+  'Asks a driver for a tracking number or ETA over WhatsApp instead of calling them — replaces the manual "call to check where the truck is" pattern. Real send + real inbound webhook; shipments are added manually below until a TMS/ERP shipment feed is connected.':
+    'Le pide al conductor un número de rastreo o ETA por WhatsApp en vez de llamarlo — reemplaza el patrón manual de "llamar para ver dónde va el camión". Envío real + webhook de entrada real; los envíos se agregan manualmente abajo hasta conectar un feed de envíos de TMS/ERP.',
+  'ADD SHIPMENT': 'AGREGAR ENVÍO', 'New test shipment': 'Nuevo envío de prueba',
+  'Driver name': 'Nombre del conductor', 'Driver WhatsApp number': 'Número de WhatsApp del conductor',
+  'Deadline': 'Fecha límite', 'Description': 'Descripción', 'Add shipment': 'Agregar envío',
+  'ACTIVE SHIPMENTS': 'ENVÍOS ACTIVOS', 'Awaiting or tracked': 'En espera o rastreados',
+  'No shipments yet — add one above to try the tracking agent.': 'Aún no hay envíos — agrega uno arriba para probar el agente de rastreo.',
+  'No deadline set': 'Sin fecha límite', 'Overdue — ': 'Atrasado — ',
+  'Tracking number:': 'Número de rastreo:', 'Driver reply:': 'Respuesta del conductor:',
+  '✓ Tracking received': '✓ Rastreo recibido', 'Awaiting reply…': 'Esperando respuesta…',
+  'Request tracking update': 'Solicitar actualización de rastreo',
+  'Tracking received': 'Rastreo recibido', 'Awaiting reply': 'Esperando respuesta', 'Not yet contacted': 'Aún no contactado',
+  'Awaiting reply…': 'Esperando respuesta…',
+  'Shipment added.': 'Envío agregado.',
+  // Inventory
+  'ERP connector': 'Conector ERP',
+  'Live inventory levels feeding the risk scoring engine. Excel/Odoo/SAP Business One/ZafraCloud connect here the same way — this is the actual data shape the corridor signal is measured against, not a mockup.':
+    'Niveles de inventario en vivo que alimentan el motor de puntuación de riesgo. Excel/Odoo/SAP Business One/ZafraCloud se conectan aquí de la misma forma — esta es la estructura real de datos contra la que se mide la señal del corredor, no una maqueta.',
+  'SKUS TRACKED': 'SKUS RASTREADOS', 'This connector': 'Este conector',
+  'BELOW REORDER POINT': 'BAJO PUNTO DE REORDEN', 'Needs attention': 'Requiere atención',
+  'INVENTORY VALUE': 'VALOR DE INVENTARIO', 'On-hand × unit cost': 'Existencia × costo unitario',
+  'FETCHED': 'CONSULTADO', 'Auto-updates every 25s': 'Se actualiza cada 25s',
+  'SKU DETAIL': 'DETALLE DE SKU', 'On-hand vs. safety stock': 'Existencia vs. stock de seguridad',
+  'No inventory items returned by this connector.': 'Este conector no devolvió artículos de inventario.',
+  'reorder pt': 'pto. de reorden', 'days': 'días', 'safety stock': 'stock de seguridad',
+  'units at': 'unidades en', 'No alternate warehouse stock': 'Sin stock en almacén alterno',
+  // Risks
+  'Full signal detail': 'Detalle completo de la señal',
+  "Command shows a one-line summary of this; here's the actual day-by-day forecast and storm detail the severity is computed from.":
+    'Comando muestra un resumen de una línea de esto; aquí está el pronóstico día a día y el detalle de tormentas con el que se calcula la severidad.',
+  '7-DAY WEATHER OUTLOOK': 'PRONÓSTICO DE 7 DÍAS', 'TROPICAL SYSTEMS': 'SISTEMAS TROPICALES',
+  'Active storms in range': 'Tormentas activas en rango', 'Your region': 'Tu región',
+  'Weather feed unavailable — ': 'Feed de clima no disponible — ', 'No forecast data.': 'Sin datos de pronóstico.',
+  'Flagged': 'Marcado', 'km away': 'km de distancia',
+  'Storm feed unavailable — ': 'Feed de tormentas no disponible — ',
+  'Clear sky': 'Cielo despejado', 'Mainly clear': 'Mayormente despejado', 'Partly cloudy': 'Parcialmente nublado', 'Overcast': 'Nublado',
+  'Fog': 'Niebla', 'Depositing rime fog': 'Niebla con escarcha',
+  'Light drizzle': 'Llovizna ligera', 'Moderate drizzle': 'Llovizna moderada', 'Dense drizzle': 'Llovizna densa',
+  'Slight rain': 'Lluvia ligera', 'Moderate rain': 'Lluvia moderada', 'Heavy rain': 'Lluvia fuerte',
+  'Slight rain showers': 'Chubascos ligeros', 'Moderate rain showers': 'Chubascos moderados', 'Violent rain showers': 'Chubascos violentos',
+  'Thunderstorm': 'Tormenta eléctrica', 'Thunderstorm with slight hail': 'Tormenta con granizo ligero', 'Thunderstorm with heavy hail': 'Tormenta con granizo fuerte',
+  // Integrations
+  'Connected data sources': 'Fuentes de datos conectadas',
+  'Every live feed this build actually uses, and its real status right now — not a marketing list.':
+    'Cada feed en vivo que esta versión realmente usa, y su estado real ahora mismo — no una lista de marketing.',
+  'Open-Meteo': 'Open-Meteo', '7-day weather outlook — precipitation, wind, storm codes': 'Pronóstico de 7 días — precipitación, viento, códigos de tormenta',
+  'NOAA/NHC': 'NOAA/NHC', 'Active tropical storm tracking, relayed via storm-signal': 'Rastreo de tormentas tropicales activas, retransmitido vía storm-signal',
+  'WhatsApp Cloud API': 'API de WhatsApp Cloud',
+  'Two-way — proactive send (approved template) and inbound driver replies, both proven': 'Bidireccional — envío proactivo (plantilla aprobada) y respuestas entrantes del conductor, ambos comprobados',
+  'Live': 'En vivo', 'Demo data': 'Datos de muestra',
+  'Running in demo mode — sample inventory. Connecting your Odoo, SAP Business One, or ZafraCloud is a configuration change.':
+    'Funcionando en modo demo — inventario de muestra. Conectar tu Odoo, SAP Business One o ZafraCloud es un cambio de configuración.',
+  // Settings
+  'Configuration': 'Configuración',
+  'Utopia currently evaluates weather and storm exposure around one configurable operational point, such as a port, warehouse, or supplier city — set below. Multi-location and route-level monitoring are planned extensions, not what this drives today. Everything else here is read-only status — ERP and WhatsApp credentials are configured directly with your Utopia contact, never through a form like this.':
+    'Utopia actualmente evalúa la exposición al clima y tormentas alrededor de un solo punto operativo configurable, como un puerto, almacén o ciudad proveedora — configúralo abajo. El monitoreo multi-ubicación y a nivel de ruta son extensiones planeadas, no lo que esto impulsa hoy. Todo lo demás aquí es estado de solo lectura — las credenciales de ERP y WhatsApp se configuran directamente con tu contacto de Utopia, nunca mediante un formulario como este.',
+  'MONITORED LOCATION': 'UBICACIÓN MONITOREADA', 'Where the signal is measured': 'Dónde se mide la señal',
+  'Location name': 'Nombre de la ubicación', 'Latitude': 'Latitud', 'Longitude': 'Longitud',
+  'Relevant storm radius (km)': 'Radio de tormentas relevante (km)', 'Save location': 'Guardar ubicación',
+  'Currency': 'Moneda', 'Currency code': 'Código de moneda', 'Currency symbol': 'Símbolo de moneda',
+  'Other (custom)…': 'Otra (personalizada)…',
+  'Honduran Lempira (L)': 'Lempira hondureña (L)', 'US Dollar ($)': 'Dólar estadounidense ($)',
+  'Euro (€)': 'Euro (€)', 'Mexican Peso (Mex$)': 'Peso mexicano (Mex$)', 'British Pound (£)': 'Libra esterlina (£)',
+  'Connected — test mode': 'Conectado — modo de prueba',
+  'Monitored location updated — takes effect on the next signal computation.': 'Ubicación monitoreada actualizada — entra en vigor en el próximo cálculo de señal.',
+  'Unavailable': 'No disponible',
+  // Add tools
+  'Connect your ERP': 'Conecta tu ERP',
+  'Four real ways to connect inventory data. Excel/OneDrive below is self-service — a real Microsoft sign-in, no credential form. Odoo, SAP Business One, and ZafraCloud are real adapters too, but onboarding those is a config change your Utopia contact makes with you, since ERP passwords and API tokens are never handled client-side.':
+    'Cuatro formas reales de conectar datos de inventario. Excel/OneDrive abajo es de autoservicio — un inicio de sesión real de Microsoft, sin formulario de credenciales. Odoo, SAP Business One y ZafraCloud también son adaptadores reales, pero su incorporación es un cambio de configuración que tu contacto de Utopia hace contigo, ya que las contraseñas del ERP y los tokens de API nunca se manejan del lado del cliente.',
+  "Reads a named Table from a OneDrive workbook after a real Microsoft sign-in — no password ever touches this dashboard, only Microsoft's own login page.":
+    'Lee una Tabla con nombre de un libro de OneDrive después de un inicio de sesión real de Microsoft — ningún password toca este panel, solo la propia página de inicio de sesión de Microsoft.',
+  'Currently running': 'Actualmente en ejecución',
+  'The Inventory and Decisions views are computed from whichever provider is configured — right now, sample data until a real ERP is connected.':
+    'Las vistas de Inventario y Decisiones se calculan según el proveedor configurado — por ahora, datos de muestra hasta conectar un ERP real.',
+  // Decisions
+  'Signal & recommendation history': 'Historial de señales y recomendaciones',
+  'SNAPSHOTS COMPUTED': 'SEÑALES CALCULADAS', 'Every dashboard load': 'Cada carga del panel',
+  'RECOMMENDATIONS SHOWN': 'RECOMENDACIONES MOSTRADAS', 'APPROVAL RATE': 'TASA DE APROBACIÓN',
+  'Of decisions actually made': 'De las decisiones realmente tomadas',
+  'NO ACTION TAKEN': 'SIN ACCIÓN TOMADA', 'Recommendation shown, no click': 'Recomendación mostrada, sin clic',
+  'HISTORY': 'HISTORIAL', 'Most recent first': 'Más recientes primero',
+  'No signal history yet — load the Command view a few times to build one up.':
+    'Aún no hay historial de señales — carga la vista Comando varias veces para acumular uno.',
+  'approved': 'aprobado', 'dismissed': 'descartado',
+  'No recommendation — signal was calm': 'Sin recomendación — la señal estaba tranquila',
+  'no transfer source': 'sin fuente de transferencia',
+  '✓ Approved': '✓ Aprobado', '✕ Dismissed': '✕ Descartado', 'No action': 'Sin acción', 'Not applicable': 'No aplica',
+  'Sending…': 'Enviando…', 'Tracking request sent to the driver over WhatsApp.': 'Solicitud de rastreo enviada al conductor por WhatsApp.',
+};
+
+// Applies T against every text node under root, in place, idempotently —
+// safe to call repeatedly since it always re-derives from the (already
+// English, as authored) DOM the render functions just built.
+function applyI18n(root){
+  if(!root || LANG === 'en') return;
+  var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  var node;
+  while(node = walker.nextNode()){
+    var trimmed = node.nodeValue.trim();
+    if(trimmed && T[trimmed]){
+      node.nodeValue = node.nodeValue.replace(trimmed, T[trimmed]);
+    }
+  }
+}
+function maybeTranslateNode(n){
+  if(n.nodeType === 3){
+    var trimmed = n.nodeValue.trim();
+    if(trimmed && T[trimmed]) n.nodeValue = n.nodeValue.replace(trimmed, T[trimmed]);
+  } else if(n.nodeType === 1){
+    applyI18n(n);
+  }
+}
+// Catches every later DOM update too (a shipments list arriving after its
+// fetch, decisions history rows, etc.) without needing a manual applyI18n()
+// call sprinkled after each async render path.
+var i18nObserver = new MutationObserver(function(mutations){
+  if(LANG === 'en') return;
+  mutations.forEach(function(m){ m.addedNodes.forEach(maybeTranslateNode); });
+});
+
+function toggleLang(){
+  LANG = LANG === 'es' ? 'en' : 'es';
+  localStorage.setItem('utopia_lang', LANG);
+  rerenderCurrentView();
+}
+
+function rerenderCurrentView(){
+  // The sidebar (not main.main) is what carries #langToggleBtn now, since
+  // it's the one shell element every view render leaves untouched -- reset
+  // it from the pristine snapshot first (same reason as Command's main.main
+  // reset below), then restore active-nav state and the button's label,
+  // both of which the reset just wiped.
+  var sidebar = document.querySelector('.sidebar');
+  sidebar.innerHTML = originalSidebarHtml;
+  sidebar.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+  var activeNav = sidebar.querySelector('.nav-item[data-view="' + currentView + '"]');
+  if(activeNav) activeNav.classList.add('active');
+  var btn = sidebar.querySelector('#langToggleBtn');
+  if(btn) btn.textContent = LANG === 'es' ? 'EN' : 'ES';
+  applyI18n(sidebar); // no-ops when LANG === 'en', translates when LANG === 'es'
+  if(currentView === 'command'){
+    document.querySelector('main.main').innerHTML = originalCommandHtml; // reset to pristine English first, so toggling back to English doesn't leave static labels stuck in the other language
+    if(lastResult){ renderAll(lastResult); }
+    mainContent = document.querySelector('main.main').innerHTML;
+  } else {
+    var fn = {
+      shipments: renderShipmentsView, risks: renderRisksView, inventory: renderInventoryView,
+      integrations: renderIntegrationsView, settings: renderSettingsView,
+      'add-tools': renderAddToolsView, decisions: renderDecisionsView,
+    }[currentView];
+    if(fn) fn();
+  }
+}
+
+function formatLps(n){
+  return CURRENCY_SYMBOL + " " + Math.round(n).toLocaleString();
+}
+
+// DATA INTEGRITY (2026-09-22): a null/unknown monetary value must never
+// render as "L 0" -- that's indistinguishable from a real, known zero.
+// Every call site that used to pass straight to formatLps() for a value
+// that can now be null (sales exposure, ROI) goes through one of these
+// instead.
+function formatMoneyOrUnavailable(n){
+  return n == null ? tr('Not available', 'No disponible') : formatLps(n);
+}
+function formatExposureOrUnavailable(salesExposureLps){
+  return salesExposureLps == null
+    ? tr('Not available (unit price unknown)', 'No disponible (precio unitario desconocido)')
+    : formatLps(salesExposureLps);
+}
+
+function skuWord(n){
+  return n === 1 ? 'SKU' : 'SKUs';
+}
+
+// Matches the exact badge wording set in renderCorridorCard, so a sentence
+// mentioning severity never contradicts what the badge itself says.
+function severityLabel(severity){
+  return severity === 'unknown' ? tr('signal unavailable', 'señal no disponible')
+    : severity === 'high' ? tr('high exposure', 'alta exposición')
+    : severity === 'medium' ? tr('elevated', 'elevado')
+    : tr('monitoring', 'monitoreo');
+}
+
+function renderSignalWatch(corridor, timeLabel, locationName){
+  document.getElementById('weatherLocationLabel').textContent = locationName + ' ' + tr('weather', 'clima');
+  if(corridor.weatherError){
+    document.getElementById('weatherSummary').textContent = tr('Fetch failed — ', 'Error al obtener — ') + corridor.weatherError;
+    document.getElementById('weatherTime').textContent = tr('ERROR', 'ERROR');
+  } else {
+    document.getElementById('weatherSummary').textContent = corridor.flaggedWeatherDays
+      ? corridor.flaggedWeatherDays + tr(' day(s) flagged for heavy rain/thunderstorms/high wind in the 7-day outlook', ' día(s) marcado(s) por lluvia fuerte, tormentas o viento alto en el pronóstico de 7 días')
+      : tr('No severe weather in the 7-day outlook', 'Sin clima severo en el pronóstico de 7 días');
+    document.getElementById('weatherTime').textContent = tr('LIVE ', 'EN VIVO ') + timeLabel;
+  }
+  if(corridor.stormError){
+    document.getElementById('stormSummary').textContent = tr('Fetch failed — ', 'Error al obtener — ') + corridor.stormError;
+    document.getElementById('stormTime').textContent = tr('ERROR', 'ERROR');
+  } else {
+    document.getElementById('stormSummary').textContent = corridor.relevantStorms.length
+      ? corridor.relevantStorms.length + tr(' active within ', ' activa(s) dentro de ') + corridor.relevantRadiusKm.toLocaleString() + 'km (' + corridor.relevantStorms.map(function(s){return s.name;}).join(', ') + ')'
+      : tr('No active tropical systems within ', 'Sin sistemas tropicales activos dentro de ') + corridor.relevantRadiusKm.toLocaleString() + 'km';
+    document.getElementById('stormTime').textContent = tr('LIVE ', 'EN VIVO ') + timeLabel;
+  }
+  document.getElementById('signalUpdatedNote').textContent = tr('signals last fetched ', 'señales obtenidas por última vez ') + timeLabel;
+}
+
+function renderCorridorCard(corridor, timeLabel, locationName){
+  var brief = document.getElementById('risks');
+  brief.classList.remove('risk-brief-low', 'risk-brief-medium', 'risk-brief-unknown');
+  var icon = document.getElementById('riskIcon');
+  var badge = document.getElementById('riskSeverityBadge');
+  var headline = document.getElementById('riskHeadline');
+  var copy = document.getElementById('riskCopy');
+
+  document.getElementById('riskLocationLabel').textContent = locationName + ' ' + tr('corridor', 'corredor');
+
+  badge.classList.remove('severity-low', 'severity-medium', 'severity-high', 'severity-unknown');
+  if(corridor.severity === 'unknown'){
+    brief.classList.add('risk-brief-unknown');
+    badge.classList.add('severity-unknown');
+    badge.textContent = tr('SIGNAL UNAVAILABLE', 'SEÑAL NO DISPONIBLE');
+    icon.textContent = '?';
+    headline.textContent = tr('Live corridor signal temporarily unavailable', 'Señal del corredor en vivo temporalmente no disponible');
+  } else if(corridor.severity === 'high'){
+    badge.classList.add('severity-high');
+    badge.textContent = tr('HIGH EXPOSURE', 'ALTA EXPOSICIÓN');
+    icon.textContent = '!';
+    headline.textContent = tr('Active tropical system may affect the ', 'Un sistema tropical activo podría afectar el corredor de ') + locationName + tr(' corridor', '');
+  } else if(corridor.severity === 'medium'){
+    brief.classList.add('risk-brief-medium');
+    badge.classList.add('severity-medium');
+    badge.textContent = tr('ELEVATED', 'ELEVADO');
+    icon.textContent = '!';
+    headline.textContent = tr('Elevated weather/storm signal for the ', 'Señal elevada de clima/tormenta para el corredor de ') + locationName + tr(' corridor this week', ' esta semana');
+  } else {
+    brief.classList.add('risk-brief-low');
+    badge.classList.add('severity-low');
+    badge.textContent = tr('MONITORING', 'MONITOREANDO');
+    icon.textContent = '✓';
+    headline.textContent = tr('No active tropical systems or severe weather flagged for ', 'Sin sistemas tropicales activos ni clima severo marcado para ') + locationName + tr(' this week', ' esta semana');
+  }
+  var reasons = corridor.reasons || [];
+  if(corridor.weatherError && corridor.stormError){
+    reasons = [tr('Both live feeds failed to load — see Signal Watch panel for details', 'Ambos feeds en vivo fallaron al cargar — ver el panel de Monitor de Señales para más detalles')];
+  }
+  copy.textContent = reasons.length
+    ? reasons.join('. ') + '.'
+    : tr('Open-Meteo’s 7-day outlook and NOAA/NHC’s active-storm feed show nothing unusual for the corridor right now.',
+         'El pronóstico de 7 días de Open-Meteo y el feed de tormentas activas de NOAA/NHC no muestran nada inusual para el corredor en este momento.');
+
+  // Note: corridor.reasons itself comes from the server (risk-recommendation)
+  // in English regardless of LANG -- translating those would need the
+  // Edge Function to be bilingual, which is out of scope for this pass.
+  // Disclosed in CLAUDE.md rather than papered over with a fragile regex.
+  var evidenceRow = document.getElementById('riskEvidenceRow');
+  var evidenceParts = [
+    (corridor.weatherError ? '?' : corridor.flaggedWeatherDays) + tr(' severe-weather day(s) in 7-day outlook', ' día(s) de clima severo en el pronóstico de 7 días'),
+    (corridor.stormError ? '?' : corridor.relevantStorms.length) + tr(' active storm(s) within ', ' tormenta(s) activa(s) dentro de ') + corridor.relevantRadiusKm.toLocaleString() + 'km',
+    tr('updated ', 'actualizado ') + timeLabel
+  ];
+  evidenceRow.innerHTML = evidenceParts.map(function(p){ return '<span>' + p + '</span>'; }).join('<span>•</span>');
+}
+
+// Metric-card accent color, driven by the actual value instead of a
+// fixed position — a healthy "0 at risk" or a plain informational field
+// (a fetch timestamp) shouldn't wear the same red as a genuine warning.
+function metricClass(kind, value){
+  if(kind === 'risk') return value > 0 ? 'metric-danger' : 'metric-neutral';
+  if(kind === 'warn') return value > 0 ? 'metric-warning' : 'metric-neutral';
+  if(kind === 'coverage') return value >= 95 ? 'metric-success' : value >= 80 ? 'metric-warning' : 'metric-danger';
+  return 'metric-neutral'; // 'plain' and anything else — no risk meaning at all
+}
+function setMetricClass(valueElId, cls){
+  var valueEl = document.getElementById(valueElId);
+  var card = valueEl && valueEl.closest('.metric');
+  if(card) card.className = 'metric ' + cls;
+}
+
+function renderMetrics(corridor, rec){
+  document.getElementById('metricExposureValue').textContent = !rec.applicable
+    ? CURRENCY_SYMBOL + ' 0'
+    : formatMoneyOrUnavailable(rec.totalExposureLps);
+  document.getElementById('metricExposureNote').textContent = !rec.applicable
+    ? tr('No SKUs at risk right now', 'Sin SKUs en riesgo por ahora')
+    : rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + tr(' at risk', ' en riesgo') +
+      (rec.exposureIncomplete ? tr(' — partial, unit price unknown for some', ' — parcial, precio unitario desconocido para algunos') : '');
+  setMetricClass('metricExposureValue', metricClass('risk', rec.applicable && rec.totalExposureLps != null ? rec.totalExposureLps : 0));
+
+  var disruptionCount = corridor.relevantStorms.length + (corridor.flaggedWeatherDays > 0 ? 1 : 0);
+  document.getElementById('metricDisruptionsValue').textContent = String(disruptionCount).padStart(2, '0');
+  document.getElementById('metricDisruptionsNote').textContent =
+    corridor.relevantStorms.length + tr(' storm(s) · ', ' tormenta(s) · ') + (corridor.flaggedWeatherDays > 0 ? '1' : '0') + tr(' severe-weather flag', ' alerta de clima severo');
+  setMetricClass('metricDisruptionsValue', metricClass('warn', disruptionCount));
+
+  document.getElementById('metricStockoutsValue').textContent = rec.applicable ? String(rec.atRiskSkus.length) : '0';
+  document.getElementById('metricStockoutsNote').textContent = corridor.expectedDelayDays > 0
+    ? tr('Within the ', 'Dentro del retraso esperado de ') + corridor.expectedDelayDays + tr('-day expected delay', ' días')
+    : tr('No delay currently expected', 'Sin retraso esperado actualmente');
+  setMetricClass('metricStockoutsValue', metricClass('risk', rec.applicable ? rec.atRiskSkus.length : 0));
+
+  var coveragePct = rec.applicable ? rec.avgCoveragePct : 100;
+  document.getElementById('metricCoverageValue').textContent = coveragePct + '%';
+  setMetricClass('metricCoverageValue', metricClass('coverage', coveragePct));
+}
+
+function renderDecisionQueue(corridor, rec, erpProvider){
+  var tag = document.getElementById('erpDataTag');
+  tag.textContent = erpProvider === 'demo' ? tr('Demo ERP data', 'Datos de ERP de muestra')
+    : (erpProvider === 'odoo' || erpProvider === 'sap_b1' || erpProvider === 'excel' || erpProvider === 'zafracloud') ? tr('Live: ', 'En vivo: ') + erpProvider
+    : tr('ERP data unavailable', 'Datos de ERP no disponibles');
+
+  var excelDesc = document.getElementById('excelSignalDesc');
+  var excelStatus = document.getElementById('excelSignalStatus');
+  if(excelDesc && excelStatus){
+    if(erpProvider === 'odoo' || erpProvider === 'sap_b1' || erpProvider === 'excel' || erpProvider === 'zafracloud'){
+      excelDesc.textContent = tr('Live — reading ', 'En vivo — leyendo ') + erpProvider + tr(' inventory data. Tap to manage.', '. Toca para administrar.');
+      excelStatus.textContent = tr('LIVE', 'EN VIVO');
+    } else {
+      excelDesc.textContent = tr('Maps signals to actual inventory exposure', 'Vincula señales con la exposición real del inventario');
+      excelStatus.textContent = tr('READ', 'LECTURA');
+    }
+  }
+
+  var card = document.getElementById('decisionCard');
+  var empty = document.getElementById('decisionEmptyState');
+  var dismissed = document.getElementById('dismissedState');
+  dismissed.setAttribute('hidden', '');
+
+  if(!rec.applicable){
+    card.setAttribute('hidden', '');
+    empty.removeAttribute('hidden');
+    document.getElementById('decisionEmptyText').textContent = corridor.severity === 'unknown'
+      ? tr('Live signal unavailable right now — recommendations are paused rather than guessed. See Signal Watch for details.',
+           'Señal en vivo no disponible en este momento — las recomendaciones se pausan en vez de adivinarse. Ver Monitor de Señales para más detalles.')
+      : corridor.severity === 'low'
+      ? tr('Signal is quiet — no SKUs are projected to run short during the current outlook.',
+           'La señal está tranquila — no se proyecta que ningún SKU se quede corto durante el pronóstico actual.')
+      : tr('Corridor signal is elevated, but every tracked SKU has enough safety stock to cover the expected ', 'La señal del corredor está elevada, pero cada SKU rastreado tiene suficiente stock de seguridad para cubrir el retraso esperado de ') + corridor.expectedDelayDays + tr('-day delay.', ' días.');
+    return;
+  }
+
+  empty.setAttribute('hidden', '');
+  card.removeAttribute('hidden');
+
+  document.getElementById('decisionTag').className = corridor.severity === 'high' ? 'tag tag-urgent' : 'tag tag-normal';
+  document.getElementById('decisionTag').textContent = corridor.severity === 'high' ? tr('Urgent', 'Urgente') : tr('Review', 'Revisar');
+  document.getElementById('decisionTime').textContent = tr('Computed just now', 'Calculado hace un momento');
+
+  var topSku = rec.atRiskSkus[0]; // sorted by days of safety stock ascending — most urgent first
+  document.getElementById('decisionUrgencyNote').textContent =
+    tr('Act soon — ', 'Actúa pronto — ') + topSku.name + tr(' projected to run ', ' se proyecta que quede corto ') + topSku.unitsShort + tr(' units short within the ', ' unidades dentro del retraso esperado de ') + corridor.expectedDelayDays + tr('-day expected delay', ' días');
+
+  document.getElementById('decisionHeadline').textContent = LANG === 'es'
+    ? 'Proteger ' + rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' durante condiciones de corredor ' + severityLabel(corridor.severity)
+    : 'Protect ' + rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' during ' + severityLabel(corridor.severity) + ' corridor conditions';
+  document.getElementById('decisionSummary').textContent = LANG === 'es'
+    ? 'Utopia combinó la señal del corredor en vivo con los niveles de inventario actuales (datos de ' + erpProvider + ') para marcar ' +
+      rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' bajo el stock de seguridad para el retraso esperado de ' + corridor.expectedDelayDays + ' días.'
+    : 'Utopia combined the live corridor signal with current inventory levels (' + erpProvider + ' data) to flag ' +
+      rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' below safety stock for the expected ' + corridor.expectedDelayDays + '-day delay.';
+
+  // CONSERVATIVE TRANSFERS (2026-09-22, Part B): no connected ERP adapter
+  // reports the alternate warehouse's own reorder point today, so a
+  // transfer can't yet be confirmed safe for the SOURCE warehouse -- it's
+  // a candidate, not a vetted recommendation, until that data exists.
+  // This never overrides "suggestion, never autonomous action": a human
+  // can still choose to act, but the system doesn't claim more certainty
+  // than it has.
+  if(rec.topWarehouse){
+    var pendingTag = rec.anyUnverifiedTransfers
+      ? ' <span class="tag" style="background:#3a2f1a;color:#e0b45a">' + tr('CANDIDATE — PENDING VERIFICATION', 'CANDIDATO — PENDIENTE DE VERIFICACIÓN') + '</span>'
+      : '';
+    document.getElementById('recommendationStrong').innerHTML =
+      tr('Transfer ', 'Transferir ') + rec.totalTransferUnits + tr(' units from ', ' unidades desde ') + rec.topWarehouse.location + pendingTag;
+    document.getElementById('recommendationCostLine').textContent =
+      tr('Estimated cost ', 'Costo estimado ') + formatLps(rec.totalTransferCostLps) + tr(' · Preserves ', ' · Preserva ') + rec.avgCoveragePct + tr('% verified coverage', '% de cobertura verificada');
+  } else {
+    document.getElementById('recommendationStrong').textContent = tr('Review manually — no alternate warehouse stock available', 'Revisar manualmente — sin stock disponible en almacén alterno');
+    document.getElementById('recommendationCostLine').textContent = tr('No transfer source found for the affected SKUs', 'No se encontró fuente de transferencia para los SKUs afectados');
+  }
+  var roiBadge = document.getElementById('roiBadge');
+  roiBadge.innerHTML = (rec.roiMultiple != null ? rec.roiMultiple + 'x' : tr('N/A', 'N/D')) + '<small>' + tr('return', 'retorno') + '</small>';
+  roiBadge.title = rec.roiMultiple == null ? (rec.roiUnavailableReason || '') : '';
+
+  var whyItems = (corridor.reasons || []).map(function(r){ return '<li>' + r + '</li>'; });
+  rec.atRiskSkus.forEach(function(s){
+    whyItems.push('<li>' + s.name + ' (' + s.sku + '): ' + s.daysOfSafetyStock + tr(' days of safety stock, short ', ' días de stock de seguridad, corto por ') +
+      s.unitsShort + tr(' units (~', ' unidades (~') + formatExposureOrUnavailable(s.salesExposureLps) + tr(' exposure)', ' de exposición)') + '</li>');
+  });
+  if(rec.anyUnverifiedTransfers){
+    whyItems.push('<li>' + tr(
+      'Suggested transfer amounts are a candidate only — the connected ERP does not report the source warehouse’s own reorder point, so Utopia cannot yet confirm the transfer is safe for that warehouse. Verify before acting.',
+      'Las cantidades de transferencia sugeridas son solo un candidato — el ERP conectado no reporta el punto de reorden del almacén de origen, así que Utopia aún no puede confirmar que la transferencia sea segura para ese almacén. Verifica antes de actuar.'
+    ) + '</li>');
+  }
+  document.getElementById('whyDetail').innerHTML = whyItems.join('');
+
+  // corridor.reasons (embedded below) comes from the server in English
+  // regardless of LANG -- see the note in renderCorridorCard above.
+  var msg = tr('Utopia: corridor signal ', 'Utopia: señal del corredor ') + severityLabel(corridor.severity) + ' (' + (corridor.reasons || []).join('; ') + '). ' +
+    (rec.topWarehouse
+      ? tr('Recommended: transfer ', 'Recomendado: transferir ') + rec.totalTransferUnits + tr(' units from ', ' unidades desde ') + rec.topWarehouse.location + ' — ' +
+        formatLps(rec.totalTransferCostLps) + tr(', preserves ', ', preserva ') + rec.avgCoveragePct + tr('% coverage.', '% de cobertura.')
+      : tr('No alternate warehouse stock available — manual review needed.', 'Sin stock disponible en almacén alterno — se necesita revisión manual.')) +
+    tr(' Reply YES to approve or open the app to compare options.', ' Responde SÍ para aprobar o abre la app para comparar opciones.');
+  document.getElementById('whatsappMessage').textContent = msg;
+  document.getElementById('whatsappLink').href = 'https://wa.me/' + WHATSAPP_NUMBER + '?text=' + encodeURIComponent(msg);
+}
+
+function renderAll(result){
+  lastResult = result;
+  var timeLabel = new Date(result.computedAt || Date.now()).toLocaleTimeString(localeStr(), { hour: 'numeric', minute: '2-digit' });
+  var locationName = result.locationName || 'Your region';
+  renderSignalWatch(result.corridor, timeLabel, locationName);
+  renderCorridorCard(result.corridor, timeLabel, locationName);
+  renderMetrics(result.corridor, result.recommendation);
+  renderDecisionQueue(result.corridor, result.recommendation, result.erpProvider);
+}
+
+async function loadRiskRecommendation(){
+  try {
+    var res = await authedFetch(RISK_RECOMMENDATION_URL);
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'risk-recommendation reported an error');
+    renderAll(data);
+  } catch(e){
+    renderAll({
+      computedAt: new Date().toISOString(),
+      corridor: { severity: 'unknown', reasons: ['risk-recommendation endpoint unreachable — severity cannot be determined right now'], flaggedWeatherDays: 0, relevantStorms: [], relevantRadiusKm: 2500, expectedDelayDays: 0, weatherError: e.message, stormError: e.message },
+      erpProvider: 'unavailable',
+      recommendation: { applicable: false }
+    });
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  originalCommandHtml = document.querySelector('main.main').innerHTML; // capture pristine English before any translation touches it
+  originalSidebarHtml = document.querySelector('.sidebar').innerHTML; // same, for the sidebar reset in rerenderCurrentView()
+  document.getElementById('langToggleBtn').textContent = LANG === 'es' ? 'EN' : 'ES';
+  i18nObserver.observe(document.querySelector('main.main'), { childList: true, subtree: true });
+  applyI18n(document.querySelector('main.main')); // translate the static markup already in the DOM (sidebar labels render separately, outside main)
+  applyI18n(document.querySelector('.sidebar'));
+  document.getElementById('todayLabel').textContent =
+    new Date().toLocaleDateString(localeStr(), { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
+  // Fetched in parallel with (not before) the risk recommendation --
+  // gating the whole Command view's first paint behind an unrelated
+  // settings endpoint would make the core risk display fragile against
+  // that endpoint's own latency/uptime. Worst case here is a brief
+  // flash of the default "L" symbol, self-corrected below.
+  authedFetch(RISK_LOCATION_SETTINGS_URL).then(function(res){ return res.json(); }).then(function(data){
+    if(data.ok && data.config && data.config.currency_symbol){
+      CURRENCY_SYMBOL = data.config.currency_symbol;
+      // Only re-render if Command is still the visible view -- lastResult
+      // may already exist from the initial load, but the user could have
+      // navigated elsewhere by the time this resolves.
+      if(lastResult && currentView === 'command') renderMetrics(lastResult.corridor, lastResult.recommendation);
+    }
+  }).catch(function(){});
+
+  loadRiskRecommendation().finally(function(){
+    mainContent = document.querySelector('main.main').innerHTML; // cache the Command view AFTER live data renders (and after translation)
+    handleExcelRedirect(); // only after mainContent is cached, so navigating away here can't corrupt "Back to Command"
+  });
+});
+
+// Handles the redirect back from excel-oauth-callback (?excel=connected /
+// ?excel=error&excel_msg=...). Never carries a token — just a status flag.
+function handleExcelRedirect(){
+  var params = new URLSearchParams(window.location.search);
+  var excelParam = params.get('excel');
+  if(!excelParam) return;
+  if(excelParam === 'connected'){
+    showToast(tr('Excel connected — inventory now reads live from your OneDrive workbook.', 'Excel conectado — el inventario ahora se lee en vivo desde tu libro de OneDrive.'));
+    selectNav(document.querySelector('.nav-item[data-view="add-tools"]'));
+  } else if(excelParam === 'error'){
+    showToast(tr('Excel connection failed — ', 'Falló la conexión con Excel — ') + (params.get('excel_msg') || ''));
+  }
+  history.replaceState({}, '', window.location.pathname);
+}
+
+function toggleWhy(){
+  var detail = document.getElementById('whyDetail');
+  var chevron = document.getElementById('whyChevron');
+  var hidden = detail.hasAttribute('hidden');
+  if(hidden){ detail.removeAttribute('hidden'); chevron.textContent = '▴'; }
+  else { detail.setAttribute('hidden',''); chevron.textContent = '▾'; }
+}
+
+// Build order step 5: every approve/dismiss/undo click is recorded against
+// the current page load's snapshot, not just toggled client-side. If the
+// recording call fails, the UI still updates — a logging hiccup shouldn't
+// block the human from dismissing or approving what they're looking at.
+var RECOMMENDATION_ACTION_URL = "https://tldbuhwutvmaruaqeywk.supabase.co/functions/v1/recommendation-action";
+function recordEvent(eventType){
+  if(!lastResult || !lastResult.snapshotId) return;
+  authedFetch(RECOMMENDATION_ACTION_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ snapshotId: lastResult.snapshotId, eventType: eventType })
+  }).catch(function(e){ console.error('Failed to record ' + eventType + ' event:', e); });
+}
+
+function approveRecommendation(){
+  recordEvent('approved');
+  var now = new Date().toLocaleTimeString(localeStr(), { hour: 'numeric', minute: '2-digit' });
+  var approveBtn = document.getElementById('approveBtn');
+  approveBtn.textContent = '\u2713 ' + tr('Approved', 'Aprobado') + ' \u00b7 ' + now;
+  approveBtn.disabled = true;
+  approveBtn.classList.add('approved-button');
+  var dismissBtn = document.getElementById('dismissBtn');
+  if(dismissBtn) dismissBtn.disabled = true;
+  var compareBtn = document.getElementById('compareBtn');
+  if(compareBtn) compareBtn.disabled = true;
+  showToast(tr('Approval logged and persisted \u2014 Utopia only suggests, so no transfer/purchase/supplier action is sent automatically.',
+    'Aprobaci\u00f3n registrada y guardada \u2014 Utopia solo sugiere, as\u00ed que ninguna acci\u00f3n de transferencia/compra/proveedor se env\u00eda autom\u00e1ticamente.'));
+}
+function dismissCard(){
+  recordEvent('dismissed');
+  document.getElementById('decisionCard').setAttribute('hidden','');
+  document.getElementById('dismissedState').removeAttribute('hidden');
+}
+function undoDismiss(){
+  recordEvent('undone');
+  document.getElementById('dismissedState').setAttribute('hidden','');
+  document.getElementById('decisionCard').removeAttribute('hidden');
+}
+
+var toastTimer;
+function showToast(msg){
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ t.classList.remove('show'); }, 2400);
+}
+
+function showNotificationSummary(){
+  if(!lastResult){ showToast(tr('Signal still loading — try again in a moment.', 'La señal sigue cargando — intenta de nuevo en un momento.')); return; }
+  var c = lastResult.corridor;
+  var rec = lastResult.recommendation;
+  var parts = [severityLabel(c.severity) + ' corridor signal'];
+  parts.push(rec.applicable ? rec.atRiskSkus.length + ' ' + skuWord(rec.atRiskSkus.length) + ' at risk' : 'no SKUs at risk right now');
+  parts.push(tr('last computed ', 'calculado por última vez ') + new Date(lastResult.computedAt).toLocaleTimeString(localeStr(), { hour: 'numeric', minute: '2-digit' }));
+  showToast(parts.join(' \u00b7 '));
+}
+
+function selectNav(el){
+  stopInventoryPolling();
+  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+  el.classList.add('active');
+  var view = el.getAttribute('data-view');
+  var main = document.querySelector('main.main');
+  currentView = view;
+
+  if(view === 'command'){
+    main.innerHTML = mainContent;
+  } else if(view === 'shipments'){
+    renderShipmentsView();
+  } else if(view === 'risks'){
+    renderRisksView();
+  } else if(view === 'inventory'){
+    renderInventoryView();
+  } else if(view === 'integrations'){
+    renderIntegrationsView();
+  } else if(view === 'settings'){
+    renderSettingsView();
+  } else if(view === 'add-tools'){
+    renderAddToolsView();
+  } else if(view === 'decisions'){
+    renderDecisionsView();
+  } else {
+    var label = el.querySelector('span:nth-child(2)') ? el.querySelector('span:nth-child(2)').textContent : view;
+    main.innerHTML =
+      '<div class="view-placeholder"><strong>' + label + ' view</strong>' +
+      "Command is the live view right now \u2014 real signal, real scoring, a real two-way WhatsApp pipeline. " + label + " is part of the complete build, alongside this one." +
+      '<br><button onclick="backToCommand()">\u2190 Back to Command</button></div>';
+  }
+}
+function backToCommand(){
+  stopInventoryPolling();
+  currentView = 'command';
+  document.querySelector('main.main').innerHTML = mainContent;
+  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+  document.querySelector('.nav-item[data-view="command"]').classList.add('active');
+}
+
+// Driver/provider WhatsApp tracking agent — Shipments view. Real backend:
+// shipments-list/shipments-create/request-tracking-update, plus an inbound
+// whatsapp-webhook function that updates a shipment when the driver
+// replies. No TMS/ERP shipment feed exists yet, so shipments are added
+// manually here (same rationale as the ERP connector's demo mode).
+var SHIPMENTS_LIST_URL = "https://tldbuhwutvmaruaqeywk.supabase.co/functions/v1/shipments-list";
+var SHIPMENTS_CREATE_URL = "https://tldbuhwutvmaruaqeywk.supabase.co/functions/v1/shipments-create";
+var REQUEST_TRACKING_URL = "https://tldbuhwutvmaruaqeywk.supabase.co/functions/v1/request-tracking-update";
+
+function renderShipmentsView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">SHIPMENTS</p><h2>Driver/provider tracking agent</h2>' +
+    '<p>Asks a driver for a tracking number or ETA over WhatsApp instead of calling them — replaces the manual "call to check where the truck is" pattern. Real send + real inbound webhook; shipments are added manually below until a TMS/ERP shipment feed is connected.</p></div></div>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">ADD SHIPMENT</p><h3>New test shipment</h3></div></div>' +
+    '<form id="addShipmentForm" class="form-grid">' +
+    '<label class="wide">Driver name<input type="text" id="shipDriverName" required></label>' +
+    '<label>Driver WhatsApp number<input type="text" id="shipDriverPhone" placeholder="504XXXXXXXX" required></label>' +
+    '<label>Deadline<input type="datetime-local" id="shipDeadline"></label>' +
+    '<label class="wide">Description<input type="text" id="shipDescription" placeholder="PO #4021 — 200 units to San Pedro Sula" required></label>' +
+    '<div class="wide"><button type="submit" class="primary-button">Add shipment</button></div>' +
+    '</form></section>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">ACTIVE SHIPMENTS</p><h3>Awaiting or tracked</h3></div>' +
+    '<button class="text-button" onclick="loadShipments()">Refresh</button></div>' +
+    '<div id="shipmentsList">Loading…</div></section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+
+  document.getElementById('addShipmentForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    addShipment();
+  });
+  loadShipments();
+}
+
+function shipmentStatusLabel(status){
+  return status === 'tracking_received' ? 'Tracking received'
+    : status === 'tracking_requested' ? 'Awaiting reply'
+    : 'Not yet contacted';
+}
+
+async function loadShipments(){
+  var listEl = document.getElementById('shipmentsList');
+  if(!listEl) return;
+  try {
+    var res = await authedFetch(SHIPMENTS_LIST_URL);
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'shipments-list reported an error');
+    if(!data.shipments.length){
+      listEl.innerHTML = '<div class="shipment-empty">No shipments yet — add one above to try the tracking agent.</div>';
+      return;
+    }
+    var now = Date.now();
+    listEl.innerHTML = data.shipments.map(function(s){
+      var overdue = s.deadline && new Date(s.deadline).getTime() < now && s.status !== 'tracking_received';
+      var deadlineStr = s.deadline ? new Date(s.deadline).toLocaleString(localeStr(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'No deadline set';
+      var detail = '';
+      if(s.tracking_number){ detail += '<div class="shipment-detail"><strong>Tracking number:</strong> ' + s.tracking_number + '</div>'; }
+      if(s.carrier_eta && !s.tracking_number){ detail += '<div class="shipment-detail"><strong>Driver reply:</strong> ' + s.carrier_eta + '</div>'; }
+      var btnDisabled = s.status === 'tracking_requested' || s.status === 'tracking_received';
+      var btnLabel = s.status === 'tracking_received' ? '✓ Tracking received'
+        : s.status === 'tracking_requested' ? 'Awaiting reply…'
+        : 'Request tracking update';
+      return '<div class="shipment-card" data-shipment-id="' + s.id + '">' +
+        '<div class="shipment-top"><div><strong>' + s.driver_name + '</strong>' +
+        '<div class="shipment-meta">' + s.driver_phone + ' · ' + (overdue ? '<span class="shipment-overdue">' + tr('Overdue — ', 'Atrasado — ') + deadlineStr + '</span>' : deadlineStr) + '</div></div>' +
+        '<span class="shipment-status shipment-status-' + s.status + '">' + shipmentStatusLabel(s.status) + '</span></div>' +
+        '<div class="shipment-detail">' + s.description + '</div>' +
+        detail +
+        '<div class="shipment-actions"><button class="secondary-button" ' + (btnDisabled ? 'disabled' : '') +
+        ' onclick="requestTracking(\'' + s.id + '\', this)">' + btnLabel + '</button></div>' +
+        '</div>';
+    }).join('');
+  } catch(e){
+    listEl.innerHTML = '<div class="shipment-empty">' + tr('Couldn\'t load shipments — ', 'No se pudo cargar los envíos — ') + e.message + '</div>';
+  }
+}
+
+async function addShipment(){
+  var driverName = document.getElementById('shipDriverName').value.trim();
+  var driverPhone = document.getElementById('shipDriverPhone').value.trim();
+  var deadline = document.getElementById('shipDeadline').value;
+  var description = document.getElementById('shipDescription').value.trim();
+  try {
+    var res = await authedFetch(SHIPMENTS_CREATE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driverName: driverName, driverPhone: driverPhone, description: description, deadline: deadline ? new Date(deadline).toISOString() : null }),
+    });
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'shipments-create reported an error');
+    document.getElementById('addShipmentForm').reset();
+    showToast(tr('Shipment added.', 'Envío agregado.'));
+    loadShipments();
+  } catch(e){
+    showToast(tr('Could not add shipment — ', 'No se pudo agregar el envío — ') + e.message);
+  }
+}
+
+// Inventory view — real ERP connector data (build order step 3). Same
+// days-of-safety-stock math as the scoring engine (risk-recommendation),
+// computed client-side here purely for display since this view doesn't
+// need the corridor signal, just the raw inventory picture.
+var ERP_INVENTORY_URL = "https://tldbuhwutvmaruaqeywk.supabase.co/functions/v1/erp-inventory";
+
+function renderInventoryView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">INVENTORY</p><h2>ERP connector <span class="sample-tag" id="invProviderTag">…</span></h2>' +
+    '<p>Live inventory levels feeding the risk scoring engine. Excel/Odoo/SAP Business One/ZafraCloud connect here the same way — this is the actual data shape the corridor signal is measured against, not a mockup.</p></div></div>' +
+    '<section class="metrics" aria-label="Inventory summary">' +
+    '<article class="metric metric-neutral"><div class="metric-label">SKUS TRACKED</div><div class="metric-value" id="invSummaryCount">…</div><div class="metric-note">This connector</div></article>' +
+    '<article class="metric metric-warning"><div class="metric-label">BELOW REORDER POINT</div><div class="metric-value" id="invSummaryBelowReorder">…</div><div class="metric-note">Needs attention</div></article>' +
+    '<article class="metric metric-success"><div class="metric-label">INVENTORY VALUE</div><div class="metric-value" id="invSummaryValue">…</div><div class="metric-note">On-hand × unit cost</div></article>' +
+    '<article class="metric metric-danger"><div class="metric-label">FETCHED</div><div class="metric-value" id="invSummaryFetched" style="font-size:14px">…</div><div class="metric-note">Auto-updates every 25s</div></article>' +
+    '</section>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">SKU DETAIL</p><h3>On-hand vs. safety stock</h3></div>' +
+    '<button class="text-button" onclick="loadInventory()">Refresh</button></div>' +
+    '<div id="inventoryList">Loading…</div></section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+  loadInventory();
+  // Auto-refresh so an edit to the connected Excel/Odoo/SAP data shows up
+  // without a manual click. document.hidden skips the fetch while the tab
+  // is backgrounded, so an idle open tab doesn't keep refreshing the
+  // Microsoft Graph token / calling the API for nothing.
+  inventoryPollTimer = setInterval(function(){
+    if(!document.hidden) loadInventory();
+  }, 25000);
+}
+
+function stopInventoryPolling(){
+  if(inventoryPollTimer){ clearInterval(inventoryPollTimer); inventoryPollTimer = null; }
+}
+
+async function loadInventory(){
+  var listEl = document.getElementById('inventoryList');
+  if(!listEl) return;
+  try {
+    var res = await authedFetch(ERP_INVENTORY_URL);
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'erp-inventory reported an error');
+
+    document.getElementById('invProviderTag').textContent = data.provider === 'demo' ? tr('Demo ERP data', 'Datos de ERP de muestra') : tr('Live: ', 'En vivo: ') + data.provider;
+
+    var items = data.items || [];
+    var belowReorder = items.filter(function(i){ return i.onHandUnits < i.reorderPoint; }).length;
+    var totalValue = items.reduce(function(s, i){ return s + i.onHandUnits * i.unitCost; }, 0);
+
+    document.getElementById('invSummaryCount').textContent = items.length;
+    document.getElementById('invSummaryBelowReorder').textContent = belowReorder;
+    document.getElementById('invSummaryValue').textContent = formatLps(totalValue);
+    document.getElementById('invSummaryFetched').textContent = new Date(data.fetchedAt).toLocaleTimeString(localeStr(), { hour: 'numeric', minute: '2-digit' });
+    setMetricClass('invSummaryCount', 'metric-neutral');
+    setMetricClass('invSummaryBelowReorder', metricClass('warn', belowReorder));
+    setMetricClass('invSummaryValue', 'metric-neutral');
+    setMetricClass('invSummaryFetched', 'metric-neutral');
+
+    if(!items.length){
+      listEl.innerHTML = '<div class="shipment-empty">No inventory items returned by this connector.</div>';
+      return;
+    }
+    listEl.innerHTML = items.map(function(i){
+      var daysStock = i.avgDailyUnitsSold ? Math.round((i.onHandUnits / i.avgDailyUnitsSold) * 10) / 10 : null;
+      var belowReorder = i.onHandUnits < i.reorderPoint;
+      var altTotal = (i.alternateWarehouseUnits || []).reduce(function(s, w){ return s + w.units; }, 0);
+      var altText = altTotal
+        ? altTotal + tr(' units at ', ' unidades en ') + i.alternateWarehouseUnits.map(function(w){ return w.location; }).join(', ')
+        : 'No alternate warehouse stock';
+      return '<div class="inventory-row">' +
+        '<div><strong>' + i.name + '</strong><div class="inventory-row-sku">' + i.sku + '</div></div>' +
+        '<div class="inventory-stat">' + (belowReorder ? '<span class="inventory-below-reorder">' + i.onHandUnits + '</span>' : i.onHandUnits) + ' <small>/ ' + i.reorderPoint + ' ' + tr('reorder pt', 'pto. de reorden') + '</small></div>' +
+        '<div class="inventory-stat">' + (daysStock !== null ? daysStock + ' ' + tr('days', 'días') : '—') + '<br><small>safety stock</small></div>' +
+        '<div class="inventory-stat">' + formatLps(i.unitCost) + '</div>' +
+        '<div class="inventory-alt">' + altText + '</div>' +
+        '</div>';
+    }).join('');
+  } catch(e){
+    listEl.innerHTML = '<div class="shipment-empty">' + tr('Couldn\'t load inventory — ', 'No se pudo cargar el inventario — ') + e.message + '</div>';
+  }
+}
+
+// Risks — the full day-by-day weather breakdown and full storm detail
+// that risk-recommendation already computes but Command only summarizes
+// as a count/reason line. No new math, no new backend beyond exposing
+// data that already existed inside the function.
+var WMO_LABELS = {
+  0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+  45: 'Fog', 48: 'Depositing rime fog',
+  51: 'Light drizzle', 53: 'Moderate drizzle', 55: 'Dense drizzle',
+  61: 'Slight rain', 63: 'Moderate rain', 65: 'Heavy rain',
+  80: 'Slight rain showers', 81: 'Moderate rain showers', 82: 'Violent rain showers',
+  95: 'Thunderstorm', 96: 'Thunderstorm with slight hail', 99: 'Thunderstorm with heavy hail',
+};
+
+function renderRisksView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">RISKS</p><h2>Full signal detail</h2>' +
+    '<p>Command shows a one-line summary of this; here\'s the actual day-by-day forecast and storm detail the severity is computed from.</p></div></div>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">7-DAY WEATHER OUTLOOK</p><h3 id="risksLocationHeading">Loading…</h3></div></div>' +
+    '<div id="weatherDaysList">Loading…</div></section>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">TROPICAL SYSTEMS</p><h3>Active storms in range</h3></div></div>' +
+    '<div id="stormsList">Loading…</div></section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+
+  authedFetch(RISK_RECOMMENDATION_URL).then(function(res){ return res.json(); }).then(function(data){
+    if(!data.ok) throw new Error(data.error || 'risk-recommendation reported an error');
+    var c = data.corridor;
+    document.getElementById('risksLocationHeading').textContent = (data.locationName || tr('Your region', 'Tu región')) + ' — ' + severityLabel(c.severity);
+
+    var days = c.weatherDays || [];
+    document.getElementById('weatherDaysList').innerHTML = days.length ? days.map(function(d){
+      var label = tr(WMO_LABELS[d.code], T[WMO_LABELS[d.code]]) || (tr('Code ', 'Código ') + d.code);
+      var dateStr = new Date(d.date + 'T12:00:00').toLocaleDateString(localeStr(), { weekday: 'short', month: 'short', day: 'numeric' });
+      return '<div class="weather-day-row' + (d.flagged ? ' flagged' : '') + '">' +
+        '<div>' + dateStr + '</div>' +
+        '<div>' + label + '</div>' +
+        '<div>' + d.precip + ' mm</div>' +
+        '<div>' + d.wind + ' km/h</div>' +
+        '<div>' + (d.flagged ? '<span class="weather-day-flag">Flagged</span>' : '—') + '</div>' +
+        '</div>';
+    }).join('') : '<div class="shipment-empty">' + (c.weatherError ? tr('Weather feed unavailable — ', 'Feed de clima no disponible — ') + c.weatherError : 'No forecast data.') + '</div>';
+
+    var storms = c.relevantStorms || [];
+    document.getElementById('stormsList').innerHTML = storms.length ? storms.map(function(s){
+      return '<div class="storm-row"><strong>' + s.name + ' <span class="sample-tag">' + (s.classification || '—') + '</span></strong>' +
+        '<p>' + Math.round(s.distanceKm).toLocaleString() + ' ' + tr('km away', 'km de distancia') +
+        (s.movementDir ? tr(' · moving ', ' · moviéndose ') + s.movementDir + (s.movementSpeedKt ? tr(' at ', ' a ') + s.movementSpeedKt + ' kt' : '') : '') +
+        (s.intensityKt ? tr(' · ', ' · ') + s.intensityKt + tr(' kt intensity', ' kt de intensidad') : '') + '</p></div>';
+    }).join('') : '<div class="shipment-empty">' + (c.stormError ? tr('Storm feed unavailable — ', 'Feed de tormentas no disponible — ') + c.stormError : tr('No active tropical systems within ', 'Sin sistemas tropicales activos dentro de ') + c.relevantRadiusKm.toLocaleString() + tr('km right now.', 'km en este momento.')) + '</div>';
+  }).catch(function(e){
+    document.getElementById('weatherDaysList').innerHTML = '<div class="shipment-empty">' + tr('Couldn\'t load — ', 'No se pudo cargar — ') + e.message + '</div>';
+    document.getElementById('stormsList').innerHTML = '';
+  });
+}
+
+// Integrations — real status of every live data source this build
+// actually uses. No fabricated logos for connectors that don't exist
+// (the original reference mockup listed NetSuite/generic "Microsoft" —
+// dropped, since only Excel/OneDrive, Odoo, SAP Business One, and
+// ZafraCloud are real adapters).
+var RISK_LOCATION_SETTINGS_URL = "https://tldbuhwutvmaruaqeywk.supabase.co/functions/v1/risk-location-settings";
+
+// Excel/OneDrive ERP connector — real Microsoft OAuth. excel-oauth-start
+// does the redirect to Microsoft's login; excel-oauth-callback exchanges
+// the code server-side and never sends a token back to the browser;
+// excel-status is a read-only status check (connected + which account);
+// excel-browse/excel-select-workbook back the workbook/table picker below,
+// so a manager never has to know what a "path" or "table name" even is.
+var EXCEL_OAUTH_START_URL = "https://tldbuhwutvmaruaqeywk.supabase.co/functions/v1/excel-oauth-start";
+var EXCEL_STATUS_URL = "https://tldbuhwutvmaruaqeywk.supabase.co/functions/v1/excel-status";
+var EXCEL_BROWSE_URL = "https://tldbuhwutvmaruaqeywk.supabase.co/functions/v1/excel-browse";
+var EXCEL_SELECT_WORKBOOK_URL = "https://tldbuhwutvmaruaqeywk.supabase.co/functions/v1/excel-select-workbook";
+var pickedExcelFileId = null; // set once a file is chosen in the picker, read by saveExcelWorkbook()
+var pickedExcelFileName = null;
+
+async function connectExcel(){
+  // excel-oauth-start now requires an authorized session (it mints a
+  // real state+PKCE pair tied to this user), so a plain <a href>
+  // navigation can no longer reach it -- it returns the Microsoft
+  // authorize URL as JSON over an authenticated call, and only then do
+  // we navigate the browser there.
+  try {
+    var res = await authedFetch(EXCEL_OAUTH_START_URL);
+    var data = await res.json();
+    if(data && data.ok && data.authorizeUrl){
+      window.location.href = data.authorizeUrl;
+    } else {
+      alert((data && data.error) || 'Could not start the Excel connection. Please try again.');
+    }
+  } catch (err) {
+    // authedFetch already redirected/showed a banner for 401/403; any
+    // other error just gets a plain message.
+  }
+}
+
+function startExcelPicker(){
+  var area = document.getElementById('excelPickerArea');
+  if(!area) return;
+  area.innerHTML = '<p class="settings-status-item">' + tr('Loading your OneDrive files…', 'Cargando tus archivos de OneDrive…') + '</p>';
+  authedFetch(EXCEL_BROWSE_URL + '?mode=files').then(function(res){ return res.json(); }).then(function(data){
+    if(!data.ok) throw new Error(data.error || 'excel-browse failed');
+    if(!data.files || data.files.length === 0){
+      area.innerHTML = '<p class="settings-status-item">' + tr('No Excel files found in your OneDrive root. Make sure your workbook is saved directly in "My files", not inside a folder.', 'No se encontraron archivos de Excel en la raíz de tu OneDrive. Asegúrate de que tu libro esté guardado directamente en "Mis archivos", no dentro de una carpeta.') + '</p>';
+      return;
+    }
+    var options = data.files.map(function(f){ return '<option value="' + f.id + '" data-name="' + f.name + '">' + f.name + '</option>'; }).join('');
+    area.innerHTML =
+      '<div class="settings-field"><label>' + tr('Workbook', 'Libro') + '</label>' +
+      '<select id="excelFilePicker"><option value="">' + tr('Select a file…', 'Selecciona un archivo…') + '</option>' + options + '</select></div>' +
+      '<div id="excelTablePickerArea"></div>';
+    document.getElementById('excelFilePicker').addEventListener('change', onExcelFileChosen);
+  }).catch(function(e){
+    area.innerHTML = '<p class="settings-status-item">' + tr('Could not load your files — ', 'No se pudieron cargar tus archivos — ') + e.message + '</p>';
+  });
+}
+
+function onExcelFileChosen(){
+  var select = document.getElementById('excelFilePicker');
+  var tableArea = document.getElementById('excelTablePickerArea');
+  var fileId = select.value;
+  if(!fileId){ tableArea.innerHTML = ''; return; }
+  pickedExcelFileId = fileId;
+  pickedExcelFileName = select.options[select.selectedIndex].getAttribute('data-name');
+  tableArea.innerHTML = '<p class="settings-status-item">' + tr('Loading tables…', 'Cargando tablas…') + '</p>';
+  authedFetch(EXCEL_BROWSE_URL + '?mode=tables&fileId=' + encodeURIComponent(fileId)).then(function(res){ return res.json(); }).then(function(data){
+    if(!data.ok) throw new Error(data.error || 'excel-browse failed');
+    if(!data.tables || data.tables.length === 0){
+      tableArea.innerHTML = '<p class="settings-status-item">' + tr('No tables found in this workbook — format your data as a Table in Excel first (Insert → Table).', 'No se encontraron tablas en este libro — da formato a tus datos como Tabla en Excel primero (Insertar → Tabla).') + '</p>';
+      return;
+    }
+    var options = data.tables.map(function(t){ return '<option value="' + t.name + '">' + t.name + '</option>'; }).join('');
+    tableArea.innerHTML =
+      '<div class="settings-field"><label>' + tr('Table', 'Tabla') + '</label>' +
+      '<select id="excelTablePicker"><option value="">' + tr('Select a table…', 'Selecciona una tabla…') + '</option>' + options + '</select></div>' +
+      '<button class="primary-button" onclick="saveExcelWorkbook()">' + tr('Use this workbook', 'Usar este libro') + '</button>';
+  }).catch(function(e){
+    tableArea.innerHTML = '<p class="settings-status-item">' + tr('Could not load tables — ', 'No se pudieron cargar las tablas — ') + e.message + '</p>';
+  });
+}
+
+function saveExcelWorkbook(){
+  var tableSelect = document.getElementById('excelTablePicker');
+  var tableName = tableSelect ? tableSelect.value : '';
+  if(!tableName){ showToast(tr('Choose a table first.', 'Elige una tabla primero.')); return; }
+  authedFetch(EXCEL_SELECT_WORKBOOK_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileId: pickedExcelFileId, fileName: pickedExcelFileName, tableName: tableName }),
+  }).then(function(res){ return res.json(); }).then(function(data){
+    if(!data.ok) throw new Error(data.error || 'excel-select-workbook failed');
+    showToast(tr('Workbook connected — Inventory will now read from it.', 'Libro conectado — Inventario ahora leerá de él.'));
+    var area = document.getElementById('excelPickerArea');
+    if(area) area.innerHTML = '';
+    authedFetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data2){
+      var tag = document.getElementById('addToolsCurrentProvider');
+      if(tag) tag.textContent = data2.ok ? (data2.provider === 'demo' ? tr('Demo data', 'Datos de muestra') : tr('Live: ', 'En vivo: ') + data2.provider) : tr('Unavailable', 'No disponible');
+    }).catch(function(){});
+  }).catch(function(e){
+    showToast(tr('Could not save — ', 'No se pudo guardar — ') + e.message);
+  });
+}
+
+function renderIntegrationsView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">INTEGRATIONS</p><h2>Connected data sources</h2>' +
+    '<p>Every live feed this build actually uses, and its real status right now — not a marketing list.</p></div></div>' +
+    '<section class="panel"><div id="integrationsList">Loading…</div></section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+
+  var rows = [
+    { name: 'Open-Meteo', desc: '7-day weather outlook — precipitation, wind, storm codes', status: 'live' },
+    { name: 'NOAA/NHC', desc: 'Active tropical storm tracking, relayed via storm-signal', status: 'live' },
+    { name: 'WhatsApp Cloud API', desc: 'Two-way — proactive send (approved template) and inbound driver replies, both proven', status: 'live' },
+    { name: 'ERP connector', desc: 'Loading current provider…', status: 'loading', id: 'erpIntegrationRow' },
+    { name: 'Microsoft Excel / OneDrive', desc: 'Loading…', status: 'loading', id: 'excelIntegrationRow' },
+  ];
+  document.getElementById('integrationsList').innerHTML = rows.map(function(r){
+    return '<div class="integration-row"' + (r.id ? ' id="' + r.id + '"' : '') + '><div><strong>' + r.name + '</strong><p>' + r.desc + '</p></div>' +
+      '<span class="integration-status integration-status-' + (r.status === 'live' ? 'live' : 'demo') + '">' + (r.status === 'live' ? 'Live' : '…') + '</span></div>';
+  }).join('');
+
+  authedFetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
+    var row = document.getElementById('erpIntegrationRow');
+    if(!row) return;
+    var provider = data.ok ? data.provider : 'unavailable';
+    var isDemo = provider === 'demo';
+    row.querySelector('p').textContent = isDemo
+      ? 'Running in demo mode — sample inventory. Connecting your Odoo, SAP Business One, or ZafraCloud is a configuration change.'
+      : tr('Live: ', 'En vivo: ') + provider;
+    row.querySelector('.integration-status').className = 'integration-status ' + (isDemo ? 'integration-status-demo' : 'integration-status-live');
+    row.querySelector('.integration-status').textContent = isDemo ? 'Demo data' : 'Live';
+  }).catch(function(){});
+
+  authedFetch(EXCEL_STATUS_URL).then(function(res){ return res.json(); }).then(function(data){
+    var row = document.getElementById('excelIntegrationRow');
+    if(!row) return;
+    var connected = data.ok && data.connected;
+    row.querySelector('p').textContent = connected
+      ? tr('Connected — real OAuth login, reading a OneDrive workbook via Microsoft Graph.', 'Conectado — inicio de sesión OAuth real, leyendo un libro de OneDrive vía Microsoft Graph.')
+      : tr('Not connected — click "Connect with Microsoft" in Add tools.', 'No conectado — haz clic en "Conectar con Microsoft" en Agregar herramientas.');
+    row.querySelector('.integration-status').className = 'integration-status ' + (connected ? 'integration-status-live' : 'integration-status-demo');
+    row.querySelector('.integration-status').textContent = connected ? tr('Live', 'En vivo') : tr('Not connected', 'No conectado');
+  }).catch(function(){});
+}
+
+// Settings — a real, safe config editor. Only risk_location_config is
+// editable here (no secrets in it, unlike erp_config/whatsapp_config,
+// which deliberately have no client-writable path at all — see
+// risk-location-settings function comments).
+function renderSettingsView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">SETTINGS</p><h2>Configuration</h2>' +
+    '<p>Utopia currently evaluates weather and storm exposure around one configurable operational point, such as a port, warehouse, or supplier city — set below. Multi-location and route-level monitoring are planned extensions, not what this drives today. Everything else here is read-only status — ERP and WhatsApp credentials are configured directly with your Utopia contact, never through a form like this.</p></div></div>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">MONITORED LOCATION</p><h3>Where the signal is measured</h3></div></div>' +
+    '<form id="locationSettingsForm">' +
+    '<div class="settings-field"><label>Location name</label><input type="text" id="setLocationName" required></div>' +
+    '<div class="settings-field"><label>Latitude</label><input type="text" id="setLat" required></div>' +
+    '<div class="settings-field"><label>Longitude</label><input type="text" id="setLon" required></div>' +
+    '<div class="settings-field"><label>Relevant storm radius (km)</label><input type="text" id="setRadius" required></div>' +
+    '<div class="settings-field"><label>Currency</label><select id="setCurrency">' +
+    '<option value="HNL|L">Honduran Lempira (L)</option>' +
+    '<option value="USD|$">US Dollar ($)</option>' +
+    '<option value="EUR|€">Euro (€)</option>' +
+    '<option value="MXN|Mex$">Mexican Peso (Mex$)</option>' +
+    '<option value="GBP|£">British Pound (£)</option>' +
+    '<option value="other">Other (custom)…</option>' +
+    '</select></div>' +
+    '<div class="settings-field" id="setCurrencyCustomRow" hidden><label>Currency code</label><input type="text" id="setCurrencyCodeCustom" maxlength="10" placeholder="CAD"></div>' +
+    '<div class="settings-field" id="setCurrencySymbolCustomRow" hidden><label>Currency symbol</label><input type="text" id="setCurrencySymbolCustom" maxlength="5" placeholder="C$"></div>' +
+    '<button type="submit" class="primary-button">Save location</button>' +
+    '<div class="settings-status-row">' +
+    '<div class="settings-status-item"><span>ERP connector</span><span id="setErpStatus">Loading…</span></div>' +
+    '<div class="settings-status-item"><span>WhatsApp Cloud API</span><span>Connected — test mode</span></div>' +
+    '</div>' +
+    '</form></section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+
+  var CURRENCY_PRESETS = ['HNL|L', 'USD|$', 'EUR|€', 'MXN|Mex$', 'GBP|£'];
+  function toggleCurrencyCustomRows(show){
+    document.getElementById('setCurrencyCustomRow').hidden = !show;
+    document.getElementById('setCurrencySymbolCustomRow').hidden = !show;
+  }
+  document.getElementById('setCurrency').addEventListener('change', function(){
+    toggleCurrencyCustomRows(this.value === 'other');
+  });
+
+  authedFetch(RISK_LOCATION_SETTINGS_URL).then(function(res){ return res.json(); }).then(function(data){
+    if(!data.ok || !data.config) return;
+    document.getElementById('setLocationName').value = data.config.location_name;
+    document.getElementById('setLat').value = data.config.lat;
+    document.getElementById('setLon').value = data.config.lon;
+    document.getElementById('setRadius').value = data.config.relevant_radius_km;
+    var currentCurrency = (data.config.currency_code || 'HNL') + '|' + (data.config.currency_symbol || 'L');
+    if(CURRENCY_PRESETS.indexOf(currentCurrency) !== -1){
+      document.getElementById('setCurrency').value = currentCurrency;
+      toggleCurrencyCustomRows(false);
+    } else {
+      document.getElementById('setCurrency').value = 'other';
+      document.getElementById('setCurrencyCodeCustom').value = data.config.currency_code || '';
+      document.getElementById('setCurrencySymbolCustom').value = data.config.currency_symbol || '';
+      toggleCurrencyCustomRows(true);
+    }
+  }).catch(function(){});
+
+  authedFetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
+    document.getElementById('setErpStatus').textContent = data.ok ? (data.provider === 'demo' ? tr('Demo data', 'Datos de muestra') : tr('Live: ', 'En vivo: ') + data.provider) : tr('Unavailable', 'No disponible');
+  }).catch(function(){});
+
+  document.getElementById('locationSettingsForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    var curSel = document.getElementById('setCurrency').value;
+    var currencyCode, currencySymbol;
+    if(curSel === 'other'){
+      currencyCode = document.getElementById('setCurrencyCodeCustom').value.trim() || 'HNL';
+      currencySymbol = document.getElementById('setCurrencySymbolCustom').value.trim() || 'L';
+    } else {
+      var parts = curSel.split('|');
+      currencyCode = parts[0];
+      currencySymbol = parts[1];
+    }
+    var payload = {
+      locationName: document.getElementById('setLocationName').value.trim(),
+      lat: parseFloat(document.getElementById('setLat').value),
+      lon: parseFloat(document.getElementById('setLon').value),
+      relevantRadiusKm: parseInt(document.getElementById('setRadius').value, 10),
+      currencyCode: currencyCode,
+      currencySymbol: currencySymbol,
+    };
+    authedFetch(RISK_LOCATION_SETTINGS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      .then(function(res){ return res.json(); })
+      .then(function(data){
+        if(!data.ok) throw new Error(data.error || 'risk-location-settings reported an error');
+        CURRENCY_SYMBOL = currencySymbol; // reflect immediately, no reload needed
+        showToast(tr('Monitored location updated — takes effect on the next signal computation.', 'Ubicación monitoreada actualizada — entra en vigor en el próximo cálculo de señal.'));
+      })
+      .catch(function(e){ showToast(tr('Could not save — ', 'No se pudo guardar — ') + e.message); });
+  });
+}
+
+// Add tools — an honest ERP-onboarding page: only the real adapters that
+// are actually built (Odoo, SAP Business One, ZafraCloud), no self-service
+// credential form (erp_config credentials/tokens are set server-side only,
+// never through a public form — same reasoning as Settings above).
+function renderAddToolsView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">ADD TOOLS</p><h2>Connect your ERP</h2>' +
+    '<p>Four real ways to connect inventory data. Excel/OneDrive below is self-service — a real Microsoft sign-in, no credential form. Odoo, SAP Business One, and ZafraCloud are real adapters too, but onboarding those is a config change your Utopia contact makes with you, since ERP passwords and API tokens are never handled client-side.</p></div></div>' +
+    '<section class="panel">' +
+    '<div class="tool-card-real" id="excelToolCard"><h4>Microsoft Excel / OneDrive <span class="sample-tag">Microsoft Graph</span></h4>' +
+    '<p>Reads a named Table from a OneDrive workbook after a real Microsoft sign-in — no password ever touches this dashboard, only Microsoft\'s own login page.</p>' +
+    '<div id="excelToolAction">Loading…</div>' +
+    '<div id="excelPickerArea"></div></div>' +
+    '<div class="tool-card-real"><h4>Odoo <span class="sample-tag">JSON-RPC</span></h4>' +
+    '<p>Authenticates via <code>common.authenticate</code>, reads <code>product.product</code> for on-hand levels, and <code>sale.order.line</code> for trailing-30-day sales velocity.</p></div>' +
+    '<div class="tool-card-real"><h4>SAP Business One <span class="sample-tag">Service Layer REST</span></h4>' +
+    '<p>Authenticates via <code>POST /b1s/v1/Login</code>, reads <code>GET /b1s/v1/Items</code> expanding <code>ItemWarehouseInfoCollection</code> for multi-warehouse stock.</p></div>' +
+    '<div class="tool-card-real"><h4>ZafraCloud <span class="sample-tag">Bearer token REST</span></h4>' +
+    '<p>Reads <code>GET /integracion/v2/servicios</code> for per-warehouse stock and pricing, and <code>GET /integracion/servicios/movimientos</code> per SKU for reorder point, weighted-average cost, and sales history. Built from ZafraCloud\'s own public API docs — not yet verified against a live account.</p></div>' +
+    '<div class="tool-card-real"><h4>Currently running <span class="sample-tag" id="addToolsCurrentProvider">…</span></h4>' +
+    '<p>The Inventory and Decisions views are computed from whichever provider is configured — right now, sample data until a real ERP is connected.</p></div>' +
+    '</section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+
+  authedFetch(ERP_INVENTORY_URL).then(function(res){ return res.json(); }).then(function(data){
+    document.getElementById('addToolsCurrentProvider').textContent = data.ok ? (data.provider === 'demo' ? tr('Demo data', 'Datos de muestra') : tr('Live: ', 'En vivo: ') + data.provider) : tr('Unavailable', 'No disponible');
+  }).catch(function(){});
+
+  authedFetch(EXCEL_STATUS_URL).then(function(res){ return res.json(); }).then(function(data){
+    var action = document.getElementById('excelToolAction');
+    if(!action) return;
+    if(data.ok && data.connected){
+      action.innerHTML = '<span class="integration-status integration-status-live">' + tr('Connected', 'Conectado') + '</span> ' + tr('as ', 'como ') + (data.email || '') +
+        ' <button class="text-button" onclick="startExcelPicker()">' + tr('Choose or change workbook', 'Elegir o cambiar libro') + '</button>';
+    } else {
+      action.innerHTML = '<button class="primary-button" onclick="connectExcel()">' + tr('Connect with Microsoft', 'Conectar con Microsoft') + '</button>';
+    }
+  }).catch(function(){
+    var action = document.getElementById('excelToolAction');
+    if(action) action.textContent = tr('Status unavailable', 'Estado no disponible');
+  });
+}
+
+// Decisions history view — surfaces risk_snapshots + recommendation_events
+// (persisted since build order step 5) as a real history instead of data
+// that only ever lived in Postgres. No Meta/WhatsApp dependency.
+var DECISIONS_LIST_URL = "https://tldbuhwutvmaruaqeywk.supabase.co/functions/v1/decisions-list";
+
+function renderDecisionsView(){
+  var main = document.querySelector('main.main');
+  main.innerHTML =
+    '<div class="view-stack">' +
+    '<div class="view-intro"><div><p class="eyebrow">DECISIONS</p><h2>Signal &amp; recommendation history</h2>' +
+    '<p>Every corridor signal Utopia has computed, and what happened to the recommendation it produced — real data persisted since build order step 5, not a sample. <strong>Honest caveat: this history is from development testing, not a real pilot customer’s usage yet</strong> — a snapshot is recorded on every dashboard load, so the counts below reflect how often this was tested, not how often a real business faced a real decision.</p></div></div>' +
+    '<div class="mode-banner mode-banner-demo" id="decisionsScopeBanner" hidden>' +
+    '<div class="mode-banner-text"><span class="mode-banner-tag">DEMO DATA INCLUDED</span>' +
+    '<span id="decisionsScopeBannerCopy"></span></div></div>' +
+    '<section class="metrics" aria-label="Decision history summary">' +
+    '<article class="metric metric-neutral"><div class="metric-label">CALCULATIONS PERFORMED</div><div class="metric-value" id="decSummarySnapshots">…</div><div class="metric-note">Every computation, deduplicated repeats included</div></article>' +
+    '<article class="metric metric-warning"><div class="metric-label">RECOMMENDATIONS SHOWN</div><div class="metric-value" id="decSummaryShown">…</div><div class="metric-note" id="decSummaryShownNote">Loading…</div></article>' +
+    '<article class="metric metric-neutral"><div class="metric-label">DECISION COVERAGE</div><div class="metric-value" id="decSummaryCoverage">…</div><div class="metric-note">Acted on ÷ shown</div></article>' +
+    '<article class="metric metric-success"><div class="metric-label">APPROVAL RATE</div><div class="metric-value" id="decSummaryRate">…</div><div class="metric-note">Of decisions actually made</div></article>' +
+    '<article class="metric metric-danger"><div class="metric-label">NO ACTION TAKEN</div><div class="metric-value" id="decSummaryNoAction">…</div><div class="metric-note">Recommendation shown, no click</div></article>' +
+    '</section>' +
+    '<section class="panel"><div class="panel-head"><div><p class="eyebrow">HISTORY</p><h3>Most recent first</h3></div>' +
+    '<button class="text-button" onclick="loadDecisions()">Refresh</button></div>' +
+    '<div id="decisionsHistory">Loading…</div></section>' +
+    '<button class="full-button" onclick="backToCommand()">← Back to Command</button>' +
+    '</div>';
+  loadDecisions();
+}
+
+function decisionStatusLabel(status){
+  return status === 'approved' ? '✓ Approved'
+    : status === 'dismissed' ? '✕ Dismissed'
+    : status === 'no_action' ? 'No action'
+    : 'Not applicable';
+}
+
+async function loadDecisions(){
+  var listEl = document.getElementById('decisionsHistory');
+  if(!listEl) return;
+  try {
+    var res = await authedFetch(DECISIONS_LIST_URL);
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'decisions-list reported an error');
+
+    var s = data.summary;
+    document.getElementById('decSummarySnapshots').textContent = s.calculationsPerformed;
+    document.getElementById('decSummaryShown').textContent = s.recommendationsShown;
+    document.getElementById('decSummaryShownNote').textContent = s.approved + tr(' approved · ', ' aprobado(s) · ') + s.dismissed + tr(' dismissed', ' descartado(s)');
+    document.getElementById('decSummaryCoverage').textContent = s.decisionCoveragePct === null ? '—' : s.decisionCoveragePct + '%';
+    document.getElementById('decSummaryRate').textContent = s.approvalRatePct === null ? '—' : s.approvalRatePct + '%';
+    document.getElementById('decSummaryNoAction').textContent = s.noAction;
+
+    var scopeBanner = document.getElementById('decisionsScopeBanner');
+    if(data.demoDataIncluded){
+      scopeBanner.removeAttribute('hidden');
+      document.getElementById('decisionsScopeBannerCopy').textContent = tr(
+        ' — this history/metrics view includes demo or unclassified computations, not only real pilot activity.',
+        ' — esta vista de historial/métricas incluye cálculos de demostración o sin clasificar, no solo actividad real del piloto.'
+      );
+    } else {
+      scopeBanner.setAttribute('hidden', '');
+    }
+
+    if(!data.history.length){
+      listEl.innerHTML = '<div class="shipment-empty">' + tr('No signal history yet — load the Command view a few times to build one up.', 'Aún no hay historial de señales — carga la vista Comando varias veces para acumular uno.') + '</div>';
+      return;
+    }
+    listEl.innerHTML = data.history.map(function(h){
+      var timeStr = new Date(h.computedAt).toLocaleString(localeStr(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      var detail = h.recommendationApplicable
+        ? h.skuCount + ' ' + skuWord(h.skuCount) + tr(' at risk · ', ' en riesgo · ') + formatMoneyOrUnavailable(h.totalExposureLps) + tr(' exposure · ', ' de exposición · ') + (h.roiMultiple != null ? h.roiMultiple + tr('x ROI', 'x de ROI') : tr('ROI not available', 'ROI no disponible'))
+        : tr('No recommendation — signal was calm', 'Sin recomendación — la señal estaba tranquila');
+      return '<div class="decision-row">' +
+        '<div class="decision-row-time">' + timeStr + '</div>' +
+        '<div class="decision-row-severity severity-' + h.severity + '">' + severityLabel(h.severity) + '</div>' +
+        '<div class="decision-row-detail">' + detail + '</div>' +
+        '<span class="decision-status decision-status-' + h.status + '">' + decisionStatusLabel(h.status) + '</span>' +
+        '</div>';
+    }).join('');
+  } catch(e){
+    listEl.innerHTML = '<div class="shipment-empty">' + tr('Couldn\'t load decision history — ', 'No se pudo cargar el historial de decisiones — ') + e.message + '</div>';
+  }
+}
+
+async function requestTracking(shipmentId, btn){
+  btn.disabled = true;
+  var originalLabel = btn.textContent;
+  btn.textContent = 'Sending…';
+  try {
+    var res = await authedFetch(REQUEST_TRACKING_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shipmentId: shipmentId }),
+    });
+    var data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'request-tracking-update reported an error');
+    showToast(tr('Tracking request sent to the driver over WhatsApp.', 'Solicitud de rastreo enviada al conductor por WhatsApp.'));
+    loadShipments();
+  } catch(e){
+    showToast(tr('Could not send — ', 'No se pudo enviar — ') + e.message);
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+</script>
+</body>
+</html>
