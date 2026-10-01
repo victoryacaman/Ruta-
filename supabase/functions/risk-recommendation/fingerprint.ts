@@ -24,6 +24,7 @@ export interface FingerprintInput {
   financialsAvailable?: boolean;
   inventoryScope?: string | null;
   transferCostPerUnitLps?: number;
+  dataIsStale?: boolean;
   atRiskSkus: FingerprintSkuInput[];
   assessment?: {
     status: string;
@@ -47,6 +48,7 @@ export async function computeSignalFingerprint(input: FingerprintInput): Promise
     financialsAvailable: input.financialsAvailable,
     inventoryScope: input.inventoryScope,
     transferCostPerUnitLps: input.transferCostPerUnitLps,
+    dataIsStale: input.dataIsStale,
     assessment: input.assessment ? {
       status: input.assessment.status,
       reasons: [...input.assessment.reasons].sort(),

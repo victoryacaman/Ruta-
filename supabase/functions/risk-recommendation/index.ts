@@ -8,6 +8,7 @@ import { computeAtRiskSkus } from "./scoring.ts";
 import { assessRiskInputs, assessmentRecommendation } from "./assessment.ts";
 import { computeSignalFingerprint } from "./fingerprint.ts";
 import { riskInventoryContext, currencyAssessment, withholdFinancials } from "./currency.ts";
+import { computeFreshness } from "../_shared/freshness.ts";
 
 // Build order step 4: rule-based scoring engine. Combines step 2's live
 // weather/storm signal with step 3's ERP inventory data into a real
@@ -43,11 +44,20 @@ import { riskInventoryContext, currencyAssessment, withholdFinancials } from "./
 // (unassessed SKUs, rejected rows, missing prices) instead of just a
 // recommendation/no-recommendation boolean.
 
-const DEFAULT_LOCATION = { locationName: "Puerto Cortés", lat: 15.8267, lon: -87.9536, relevantRadiusKm: 2500, transferCostPerUnitLps: 45 };
+// DELAY/FRESHNESS CONFIG (2026-10-01): expectedDelayLowDays/MediumDays/
+// HighDays and freshnessStaleAfterDays now come from risk_location_config
+// (falling back to these same defaults only when that row is itself
+// unavailable) -- previously a single hardcoded global map with no way
+// to tune it per deployment or validate it against a real carrier.
+const DEFAULT_LOCATION = {
+  locationName: "Puerto Cortés", lat: 15.8267, lon: -87.9536, relevantRadiusKm: 2500,
+  transferCostPerUnitLps: 45,
+  expectedDelayLowDays: 0, expectedDelayMediumDays: 5, expectedDelayHighDays: 10,
+  freshnessStaleAfterDays: 3,
+};
 const SEVERE_WEATHER_CODES = [65, 82, 95, 96, 99];
 const HEAVY_RAIN_MM = 20;
 const HIGH_WIND_KMH = 40;
-const EXPECTED_DELAY_DAYS: Record<string, number | null> = { unknown: null, low: 0, medium: 5, high: 10 };
 
 function supabaseClient() {
   return createClient(
@@ -61,7 +71,7 @@ async function loadLocationConfig() {
     const supabase = supabaseClient();
     const { data, error } = await supabase
       .from("risk_location_config")
-      .select("location_name, lat, lon, relevant_radius_km, transfer_cost_per_unit_lps")
+      .select("location_name, lat, lon, relevant_radius_km, transfer_cost_per_unit_lps, expected_delay_low_days, expected_delay_medium_days, expected_delay_high_days, freshness_stale_after_days")
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
@@ -70,6 +80,10 @@ async function loadLocationConfig() {
       locationName: data.location_name, lat: data.lat, lon: data.lon,
       relevantRadiusKm: data.relevant_radius_km,
       transferCostPerUnitLps: Number(data.transfer_cost_per_unit_lps),
+      expectedDelayLowDays: Number(data.expected_delay_low_days),
+      expectedDelayMediumDays: Number(data.expected_delay_medium_days),
+      expectedDelayHighDays: Number(data.expected_delay_high_days),
+      freshnessStaleAfterDays: Number(data.freshness_stale_after_days),
       locationConfigAvailable: true,
     };
   } catch (_err) {
@@ -172,10 +186,17 @@ Deno.serve(async (req: Request) => {
     const { severity, reasons } = location.locationConfigAvailable ? signal : {
       severity: "unknown", reasons: ["Location settings unavailable — corridor severity cannot be confirmed"],
     };
-    const expectedDelayDays = EXPECTED_DELAY_DAYS[severity];
+    const expectedDelayDaysBySeverity: Record<string, number | null> = {
+      unknown: null,
+      low: location.expectedDelayLowDays,
+      medium: location.expectedDelayMediumDays,
+      high: location.expectedDelayHighDays,
+    };
+    const expectedDelayDays = expectedDelayDaysBySeverity[severity];
 
     const context = riskInventoryContext(erp.inventoryContext);
     const money = currencyAssessment(context);
+    const freshness = computeFreshness(erp.dataFreshness?.lastModifiedAtIso ?? null, location.freshnessStaleAfterDays);
     const scoreItems = context.unitsConfirmed ? erp.items ?? [] : (erp.items ?? []).map((s: any) => ({
       ...s, onHandUnits: null, avgDailyUnitsSold: null,
     }));
@@ -185,7 +206,7 @@ Deno.serve(async (req: Request) => {
       locationConfigAvailable: location.locationConfigAvailable,
       rejectedSkuCount: erp.rejectedCount ?? 0,
       scoring,
-      contextReasons: money.reasons,
+      contextReasons: freshness.isStale ? [...money.reasons, "inventory_data_stale"] : money.reasons,
     });
 
     const recommendation = assessmentRecommendation(scoring, assessment.status, location.transferCostPerUnitLps, money.financialsAvailable);
@@ -222,6 +243,7 @@ Deno.serve(async (req: Request) => {
       testRunId,
       inventoryContext: context,
       currencyContext: money,
+      dataFreshness: freshness,
     };
 
     const signalFingerprint = await computeSignalFingerprint({
@@ -236,6 +258,7 @@ Deno.serve(async (req: Request) => {
       financialsAvailable: money.financialsAvailable,
       inventoryScope: erp.inventoryScope ?? null,
       transferCostPerUnitLps: location.transferCostPerUnitLps,
+      dataIsStale: freshness.isStale,
       assessment,
       atRiskSkus: scoring.atRiskSkus.map((s) => ({ sku: s.sku, unitsShort: s.unitsShort, transferUnits: s.transferUnits, salesExposureLps: s.salesExposureLps })),
     });

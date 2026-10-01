@@ -184,7 +184,17 @@ function encodeGraphPath(path: string): string {
   return path.split("/").map((seg) => (seg ? encodeURIComponent(seg) : "")).join("/");
 }
 
-async function excelAdapter(config: ErpConfig, supabase: SupabaseClient<any>): Promise<RawSkuInput[]> {
+interface ExcelAdapterResult {
+  items: RawSkuInput[];
+  // The connected workbook's own Graph `lastModifiedDateTime`, or null if
+  // it couldn't be read -- never guessed. See _shared/freshness.ts for
+  // how this becomes a staleness verdict (that's risk-recommendation's
+  // job, not this function's -- it would need risk_location_config's
+  // threshold, which this function has no reason to read).
+  lastModifiedDateTime: string | null;
+}
+
+async function excelAdapter(config: ErpConfig, supabase: SupabaseClient<any>): Promise<ExcelAdapterResult> {
   const { data: oauth, error: oauthError } = await supabase
     .from("excel_oauth")
     .select("id, client_id, client_secret, access_token, refresh_token, token_expires_at")
@@ -254,7 +264,23 @@ async function excelAdapter(config: ErpConfig, supabase: SupabaseClient<any>): P
   }
   const rowsJson = await rowsRes.json();
 
-  return mapExcelRows(columns, rowsJson.value ?? [], context.currencyCode);
+  // Freshness (2026-10-01): read live on every call, not cached from
+  // selection time -- it should reflect whether the CUSTOMER'S workbook
+  // has actually been touched recently, not a snapshot from whenever
+  // they first connected it. Best-effort: a failed metadata read never
+  // fails the whole inventory fetch, it just leaves freshness unknown.
+  let lastModifiedDateTime: string | null = null;
+  try {
+    const metaRes = await fetch(`${baseItemUrl}?$select=lastModifiedDateTime`, { headers: authHeaders });
+    if (metaRes.ok) {
+      const metaJson = await metaRes.json();
+      lastModifiedDateTime = typeof metaJson.lastModifiedDateTime === "string" ? metaJson.lastModifiedDateTime : null;
+    }
+  } catch (_e) {
+    lastModifiedDateTime = null;
+  }
+
+  return { items: mapExcelRows(columns, rowsJson.value ?? [], context.currencyCode), lastModifiedDateTime };
 }
 
 async function zafraCloudFetch(config: ErpConfig, path: string, retriesLeft = 3): Promise<any> {
@@ -398,10 +424,17 @@ Deno.serve(async (req: Request) => {
 
     const provider = (config?.provider ?? "demo") as ErpConfig["provider"];
     let rawItems: RawSkuInput[];
+    // Only the excel adapter has a real, source-reported last-modified
+    // timestamp to offer -- every other provider stays null (unknown),
+    // never a guessed/fabricated freshness verdict.
+    let lastModifiedDateTime: string | null = null;
     if (provider === "odoo") rawItems = await odooAdapter(config as ErpConfig);
     else if (provider === "sap_b1") rawItems = await sapB1Adapter(config as ErpConfig);
-    else if (provider === "excel") rawItems = await excelAdapter(config as ErpConfig, supabase);
-    else if (provider === "zafracloud") rawItems = await zafraCloudAdapter(config as ErpConfig);
+    else if (provider === "excel") {
+      const excelResult = await excelAdapter(config as ErpConfig, supabase);
+      rawItems = excelResult.items;
+      lastModifiedDateTime = excelResult.lastModifiedDateTime;
+    } else if (provider === "zafracloud") rawItems = await zafraCloudAdapter(config as ErpConfig);
     else rawItems = demoAdapter();
 
     // Every adapter's raw output goes through the same validation pass
@@ -412,7 +445,8 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({ ok: true, provider, fetchedAt: new Date().toISOString(), items, rejectedCount,
-        inventoryContext: inventoryContext(config ?? { provider: "demo" }), inventoryScope: await inventoryScope(config) }),
+        inventoryContext: inventoryContext(config ?? { provider: "demo" }), inventoryScope: await inventoryScope(config),
+        dataFreshness: { lastModifiedAtIso: lastModifiedDateTime } }),
       { headers: corsHeaders(req) },
     );
   } catch (err) {
